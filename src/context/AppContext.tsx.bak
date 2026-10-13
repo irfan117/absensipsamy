@@ -1,0 +1,96 @@
+import React, { createContext, useContext, useState, useEffect } from 'react';
+import { User } from '../types';
+import { api } from '../services/api';
+
+interface AppContextType {
+  currentUser: User | null;
+  isAuthenticated: boolean;
+  authReady: boolean;
+  jwtToken: string | null;
+  activeTab: string;
+  setActiveTab: (tab: string) => void;
+  loginWithCode: (code: string, password?: string) => Promise<{ success: boolean; message: string; user?: User }>;
+  loginWithAdmin: (identifier: string, password?: string) => Promise<{ success: boolean; message: string; user?: User }>;
+  logout: () => void;
+  changePassword: (currentPassword: string, newPassword: string) => Promise<{ success: boolean; message: string }>;
+}
+
+const AppContext = createContext<AppContextType | undefined>(undefined);
+
+export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [jwtToken, setJwtToken] = useState<string | null>(() => api.getToken());
+  const [authReady, setAuthReady] = useState(false);
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'presensi' | 'misi' | 'laporan-harian' | 'hall-of-fame' | 'rekap' | 'izin' | 'peserta' | 'pengaturan' | 'profil'>('dashboard');
+
+  useEffect(() => {
+    setAuthReady(true);
+  }, []);
+
+  const loginWithCode = async (code: string, password?: string) => {
+    try {
+      const res = await api.loginWithCode(code, password);
+      if (res.success && res.user) {
+        setCurrentUser(res.user as User);
+        setJwtToken(res.token || api.getToken());
+      }
+      return res;
+    } catch {
+      return { success: false, message: 'Gagal login.' };
+    }
+  };
+
+  const loginWithAdmin = async (identifier: string, password?: string) => {
+    try {
+      const res = await api.loginWithAdmin(identifier, password);
+      if (res.success && res.user) {
+        setCurrentUser(res.user as User);
+        setJwtToken(res.token || api.getToken());
+      }
+      return res;
+    } catch {
+      return { success: false, message: 'Gagal login admin.' };
+    }
+  };
+
+  const logout = () => {
+    api.setToken(null);
+    setJwtToken(null);
+    setCurrentUser(null);
+  };
+
+  const changePassword = async (currentPassword: string, newPassword: string) => {
+    try {
+      return await api.changePassword(currentPassword, newPassword);
+    } catch {
+      return { success: false, message: 'Gagal.' };
+    }
+  };
+
+  return (
+    <AppContext.Provider
+      value={{
+        currentUser,
+        isAuthenticated: !!currentUser,
+        authReady,
+        jwtToken,
+        activeTab,
+        setActiveTab,
+        loginWithCode,
+        loginWithAdmin,
+        logout,
+        changePassword,
+      }}
+    >
+      {children}
+    </AppContext.Provider>
+  );
+};
+
+export const useApp = () => {
+  const ctx = useContext(AppContext);
+  if (!ctx) throw new Error('useApp harus digunakan di dalam AppProvider');
+  return ctx;
+};
+
+export default AppContext;
