@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { AppProvider, useApp } from './context/AppContext';
 import { ThemeProvider } from './context/ThemeContext';
 import { Sidebar } from './components/Sidebar';
@@ -28,30 +28,22 @@ import {
 } from 'lucide-react';
 import { INDONESIAN_DAYS, INDONESIAN_MONTHS } from './utils/dateUtils';
 
+const CurrentClock: React.FC = () => {
+  const [time, setTime] = useState(() => new Date());
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setTime(new Date()), 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  const pad = (value: number) => String(value).padStart(2, '0');
+  return <>{pad(time.getHours())}.{pad(time.getMinutes())}.{pad(time.getSeconds())} WIB</>;
+};
+
 const MainLayout: React.FC = () => {
   const { currentUser, activeTab, setActiveTab, isAuthenticated, authReady } = useApp();
 
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
-  const [liveClock, setLiveClock] = useState('00.00.00');
-  const [headerDate, setHeaderDate] = useState('');
-
-  useEffect(() => {
-    const updateTime = () => {
-      const now = new Date();
-      const pad = (n: number) => String(n).padStart(2, '0');
-      setLiveClock(`${pad(now.getHours())}.${pad(now.getMinutes())}.${pad(now.getSeconds())}`);
-
-      const dayName = INDONESIAN_DAYS[now.getDay()];
-      const day = now.getDate();
-      const monthName = INDONESIAN_MONTHS[now.getMonth()];
-      const year = now.getFullYear();
-      setHeaderDate(`${dayName}, ${day} ${monthName} ${year}`);
-    };
-
-    updateTime();
-    const timer = setInterval(updateTime, 1000);
-    return () => clearInterval(timer);
-  }, []);
 
   if (!authReady) {
     return (
@@ -124,6 +116,8 @@ const MainLayout: React.FC = () => {
       : currentUser.role === 'mentor'
       ? 'Mentor'
       : 'Peserta';
+  const now = new Date();
+  const headerDate = `${INDONESIAN_DAYS[now.getDay()]}, ${now.getDate()} ${INDONESIAN_MONTHS[now.getMonth()]} ${now.getFullYear()}`;
 
   // Keep the welcome/date banner on attendance and mentor verification pages.
   // Other pages already have their own title and should not repeat the greeting.
@@ -197,7 +191,7 @@ const MainLayout: React.FC = () => {
                 WAKTU SAAT INI
               </p>
               <p className="text-base font-bold text-[#123B59] tabular-nums">
-                {liveClock} WIB
+                <CurrentClock />
               </p>
             </div>
             <span className="rounded-xl border border-[#E4EAF0] bg-[#F4F6F8] px-3 py-2 text-xs font-semibold text-[#123B59]">
@@ -207,7 +201,7 @@ const MainLayout: React.FC = () => {
         </header>
 
         {/* Page Content View */}
-        <HeaderStatusContext.Provider value={{ liveClock, roleBadgeLabel }}>
+        <HeaderStatusContext.Provider value={{ roleBadgeLabel }}>
           <main key={activeTab} className="page-enter min-w-0 w-full flex-1">{renderContent()}</main>
         </HeaderStatusContext.Provider>
 

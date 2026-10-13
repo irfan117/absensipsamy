@@ -1,11 +1,11 @@
 -- ============================================================
 -- TAMBAH AKUN ADMIN LANGSUNG DI TiDB SQL EDITOR
--- Sistem Presensi Magang (HadirKu) - absensi_db
+-- Sistem Presensi Magang (HadirKu)
 -- ============================================================
 --
 -- CARA PAKAI:
 -- 1. Buka TiDB Cloud Console → pilih cluster → SQL Editor
--- 2. Pilih database: absensi_db
+-- 2. Pilih database yang dikonfigurasi lewat TIDB_DATABASE (.env).
 -- 3. Copy-paste salah satu INSERT di bawah, lalu jalankan
 --
 -- PENTING: Kolom password_hash adalah hasil bcrypt hash.
@@ -14,9 +14,9 @@
 -- ============================================================
 
 -- ─────────────────────────────────────────────
--- CONTOH 1: Admin default sistem (password: admin123)
+-- CONTOH 1: Admin default sistem (kode: 10101010, password: 12341234)
 -- ─────────────────────────────────────────────
-INSERT INTO absensi_db.users (
+INSERT INTO users (
   id,
   nim,
   name,
@@ -29,15 +29,15 @@ INSERT INTO absensi_db.users (
   password_hash
 ) VALUES (
   'user-admin-1',           -- ID unik (ganti jika sudah ada)
-  'ADM-2026-001',           -- NIM / kode identitas admin
+  '10101010',               -- NIM / kode identitas admin
   'Abdul Rozzak Junaidi', -- Nama lengkap
-  'admin@hadirku.id',       -- Email (dipakai untuk login Tab Administrator)
+  '10101010@hadirku.id',    -- Email (dipakai untuk login Tab Administrator)
   'admin',
   '0812-3456-7890',
   'active',
   '2026-01-10',
-  '10000001',               -- Kode login 8 digit (dipakai di Tab Kode/NIM)
-  '$2b$10$1i2uNDesRLHYB5sDcN/Jk./Bs1o1dOP9RkhPCiOzeKobM2kLR0Hnu' -- bcrypt hash "admin123"
+  '10101010',               -- Kode login 8 digit (dipakai di Tab Kode/NIM)
+  '$2b$10$1OyoJU/3oeJvbWitoUSORuenG0gmzBsZUHwXCkzkc/69mXH/SDpba' -- bcrypt hash password default
 )
 ON DUPLICATE KEY UPDATE
   name           = 'Abdul Rozzak Junaidi',
@@ -50,7 +50,7 @@ ON DUPLICATE KEY UPDATE
 --   Hash dihasilkan dari: bcrypt.hash('adminbaru456', 10)
 --   Ganti hash di bawah dengan hasil generate Anda sendiri!
 -- ─────────────────────────────────────────────
--- INSERT INTO absensi_db.users (
+-- INSERT INTO users (
 --   id, nim, name, email, role, phone, status, joined_date, login_code, password_hash
 -- ) VALUES (
 --   'user-admin-2',

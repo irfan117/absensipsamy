@@ -20,7 +20,7 @@ import {
   Monitor,
   Check
 } from 'lucide-react';
-import { INDONESIAN_DAYS, INDONESIAN_MONTHS, getTodayDateString } from '../utils/dateUtils';
+import { getTodayDateString } from '../utils/dateUtils';
 import { getMentorKejuruanIds } from '../utils/mentorKejuruan';
 import psaLogo from '../assets/2D PSA LOGO.png';
 import { ThemePreference, useTheme } from '../context/ThemeContext';
@@ -48,28 +48,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
   } = useApp();
   const { preference, resolvedTheme, setPreference } = useTheme();
   const [themeMenuOpen, setThemeMenuOpen] = useState(false);
-  const [currentTime, setCurrentTime] = useState<string>('');
-  const [currentDateString, setCurrentDateString] = useState<string>('');
-
-  useEffect(() => {
-    const updateTime = () => {
-      const now = new Date();
-      const hours = String(now.getHours()).padStart(2, '0');
-      const minutes = String(now.getMinutes()).padStart(2, '0');
-      const seconds = String(now.getSeconds()).padStart(2, '0');
-      setCurrentTime(`${hours}.${minutes}.${seconds}`);
-
-      const dayName = INDONESIAN_DAYS[now.getDay()];
-      const day = now.getDate();
-      const monthName = INDONESIAN_MONTHS[now.getMonth()];
-      const year = now.getFullYear();
-      setCurrentDateString(`${dayName}, ${day} ${monthName} ${year}`);
-    };
-
-    updateTime();
-    const interval = setInterval(updateTime, 1000);
-    return () => clearInterval(interval);
-  }, []);
 
   useEffect(() => {
     if (!mobileOpen) return;
@@ -86,6 +64,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
       window.removeEventListener('keydown', closeOnEscape);
     };
   }, [mobileOpen]);
+
+  useEffect(() => {
+    const closeDrawerOnDesktop = () => {
+      if (window.matchMedia('(min-width: 1024px)').matches) onCloseMobile();
+    };
+    window.addEventListener('resize', closeDrawerOnDesktop);
+    return () => window.removeEventListener('resize', closeDrawerOnDesktop);
+  }, [onCloseMobile]);
 
   const todayStr = getTodayDateString();
   const mentorKejuruanIds = getMentorKejuruanIds(currentUser, kejuruanList);
@@ -359,7 +345,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
       {/* Mobile Drawer Overlay */}
       <div
-        className={`mobile-drawer lg:hidden fixed inset-0 z-50 flex ${mobileOpen ? 'is-open' : ''}`}
+        className={`mobile-drawer lg:hidden fixed inset-0 z-50 flex ${mobileOpen ? 'is-open pointer-events-auto' : 'pointer-events-none'}`}
         aria-hidden={!mobileOpen}
       >
         <div

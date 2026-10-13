@@ -11,6 +11,9 @@ import dailyReportsRoutes from './routes/daily-reports.js';
 import settingsRoutes from './routes/settings.js';
 import hallOfFameRoutes from './routes/hall-of-fame.js';
 import authRoutes from './routes/auth.js';
+import usersRoutes from './routes/users.js';
+import { authenticateToken } from './auth.js';
+import { appDataRouter } from './appData.js';
 
 dotenv.config();
 
@@ -50,13 +53,15 @@ app.use((req: any, res: any, next: any) => {
 
 // API Routes
 app.use('/api/auth', authRoutes);
-app.use('/api/kejuruan', kejuruanRoutes);
-app.use('/api/attendance', attendanceRoutes);
-app.use('/api/leaves', leaveRoutes);
-app.use('/api/missions', missionsRoutes);
-app.use('/api/daily-reports', dailyReportsRoutes);
-app.use('/api/settings', settingsRoutes);
-app.use('/api/hall-of-fame', hallOfFameRoutes);
+app.use('/api/users', authenticateToken, usersRoutes);
+app.use('/api/kejuruan', authenticateToken, kejuruanRoutes);
+app.use('/api/attendance', authenticateToken, attendanceRoutes);
+app.use('/api/leaves', authenticateToken, leaveRoutes);
+app.use('/api/missions', authenticateToken, missionsRoutes);
+app.use('/api/daily-reports', authenticateToken, dailyReportsRoutes);
+app.use('/api/settings', authenticateToken, settingsRoutes);
+app.use('/api/hall-of-fame', authenticateToken, hallOfFameRoutes);
+app.use('/api/app-data', appDataRouter);
 
 // Health check
 app.get('/api/health', (_req: any, res: Response) => {
@@ -65,14 +70,14 @@ app.get('/api/health', (_req: any, res: Response) => {
 
 async function ensureDefaultAdmin() {
   const pool = getPool();
-  const loginCode = '10000001';
-  const password = 'admin123';
+  const loginCode = '10101010';
+  const password = '12341234';
   const email = `${loginCode}@hadirku.id`;
-  const passwordHash = '$2b$10$34YVK5LGRUrC5RLbCFWaQulQlE26nEH0PegoyOuj6fNorNZ0XYTTa';
+  const passwordHash = '$2b$10$1OyoJU/3oeJvbWitoUSORuenG0gmzBsZUHwXCkzkc/69mXH/SDpba';
 
   const [existingAdmins] = await pool.query<any[]>(
-    "SELECT id FROM users WHERE role = 'admin' AND (login_code = ? OR nim = ? OR email = ? OR name LIKE '%Rozzak%' OR name LIKE '%rozzak%') LIMIT 1",
-    [loginCode, loginCode, email]
+    "SELECT id FROM users WHERE role = 'admin' AND (login_code IN (?, ?) OR nim IN (?, ?) OR email IN (?, ?) OR name LIKE '%Rozzak%' OR name LIKE '%rozzak%') LIMIT 1",
+    [loginCode, '10000001', loginCode, '10000001', email, '10000001@hadirku.id']
   );
 
   if (existingAdmins.length > 0) {

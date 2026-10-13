@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useCallback, useContext, useState, useEffect } from 'react';
 import {
   User,
   Kejuruan,
@@ -34,6 +34,7 @@ interface AppContextType {
   logout: () => void;
   changePassword: (currentPassword: string, newPassword: string) => Promise<{ success: boolean; message: string }>;
   updateMyAvatar: (avatar: string) => Promise<{ success: boolean; message: string }>;
+  addUser: (userData: Omit<User, 'id'>) => Promise<{ success: boolean; message: string; user?: User }>;
   refreshUsers: () => Promise<void>;
   refreshLeaveRequests: () => Promise<void>;
   refreshMissions: () => Promise<void>;
@@ -80,7 +81,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [authReady, setAuthReady] = useState(false);
   const [activeTab, setActiveTab] = useState<'dashboard' | 'presensi' | 'misi' | 'laporan-harian' | 'hall-of-fame' | 'rekap' | 'izin' | 'peserta' | 'pengaturan' | 'profil'>('dashboard');
 
-  const refreshUsers = async () => {
+  const refreshUsers = useCallback(async () => {
     if (!jwtToken) return;
     try {
       const res = await api.getUsers();
@@ -90,9 +91,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     } catch {
       setTidbStatus('error');
     }
-  };
+  }, [jwtToken]);
 
-  const refreshAttendanceRecords = async () => {
+  const refreshAttendanceRecords = useCallback(async () => {
     if (!jwtToken) return;
     try {
       const res = await (api as any).getAttendanceRecords?.();
@@ -107,9 +108,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     } catch {
       setTidbStatus('error');
     }
-  };
+  }, [jwtToken]);
 
-  const refreshLeaveRequests = async () => {
+  const refreshLeaveRequests = useCallback(async () => {
     if (!jwtToken) return;
     try {
       const res = await api.getLeaveRequests();
@@ -119,9 +120,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     } catch {
       setTidbStatus('error');
     }
-  };
+  }, [jwtToken]);
 
-  const refreshMissions = async () => {
+  const refreshMissions = useCallback(async () => {
     if (!jwtToken) return;
     try {
       const res = await api.getMissions();
@@ -132,9 +133,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     } catch {
       setTidbStatus('error');
     }
-  };
+  }, [jwtToken]);
 
-  const refreshDailyReports = async () => {
+  const refreshDailyReports = useCallback(async () => {
     if (!jwtToken) return;
     try {
       const res = await (api as any).getDailyReports?.();
@@ -144,7 +145,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     } catch {
       setTidbStatus('error');
     }
-  };
+  }, [jwtToken]);
 
   useEffect(() => {
     let cancelled = false;
@@ -235,6 +236,19 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return await api.updateMyAvatar(avatar);
     } catch {
       return { success: false, message: 'Gagal memperbarui avatar.' };
+    }
+  };
+
+  const addUser = async (userData: Omit<User, 'id'>) => {
+    try {
+      const res = await api.createUser(userData);
+      if (res.success && res.user) {
+        const createdUser = res.user;
+        setUsers((prev) => [createdUser, ...prev.filter((user) => user.id !== createdUser.id)]);
+      }
+      return res;
+    } catch (error: any) {
+      return { success: false, message: error?.message || 'Gagal menambah pengguna baru.' };
     }
   };
 
@@ -481,6 +495,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         logout,
         changePassword,
         updateMyAvatar,
+        addUser,
         refreshUsers,
         refreshLeaveRequests,
         refreshMissions,

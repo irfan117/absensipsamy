@@ -54,10 +54,7 @@ CREATE TABLE IF NOT EXISTS leave_requests (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- 4. Akun Administrator dibuat di MySQL / TiDB langsung
--- Password asli: "admin123"
--- Hash bcrypt ($2b$10$...): $2b$10$wE8wVzD8hQ75bQk6cR3PZ.5xR1iG9H1n.K1k6cR3PZ.5xR1iG9H1n (atau hash valid)
--- Di bawah ini adalah hash bcrypt standar untuk password 'admin123':
--- $2b$10$7EqJtq98hPqEX7fNZaFWoO0V6jG/g7u8U7/K4gR6N1eH2m8L5P1b2
+-- Kredensial admin default: kode 10101010, password 12341234.
 INSERT INTO users (
   id,
   nim,
@@ -74,9 +71,9 @@ INSERT INTO users (
   password_hash
 ) VALUES (
   'user-admin-1',
-  'ADM-2026-001',
+  '10101010',
   'Abdul Rozzak Junaidi',
-  'admin@hadirku.id',
+  '10101010@hadirku.id',
   'admin',
   'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=150&auto=format&fit=crop&q=80',
   '0812-3456-7890',
@@ -84,11 +81,14 @@ INSERT INTO users (
   NULL,
   'active',
   '2025-01-10',
-  '10000001',
-  '$2b$10$7EqJtq98hPqEX7fNZaFWoO0V6jG/g7u8U7/K4gR6N1eH2m8L5P1b2'
+  '10101010',
+  '$2b$10$1OyoJU/3oeJvbWitoUSORuenG0gmzBsZUHwXCkzkc/69mXH/SDpba'
 ) ON DUPLICATE KEY UPDATE
+  nim = VALUES(nim),
   name = VALUES(name),
+  email = VALUES(email),
   role = VALUES(role),
+  login_code = VALUES(login_code),
   password_hash = VALUES(password_hash);
 
 -- Selesai. Akun Mentor dan Trainee akan dibuat oleh Admin

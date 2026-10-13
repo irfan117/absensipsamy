@@ -17,7 +17,6 @@ import { MentorAttendanceTable } from './components/MentorAttendanceTable';
 export const AdminDashboard: React.FC = () => {
   const {
     users,
-    refreshUsers,
     kejuruanList,
     attendanceRecords,
     refreshAttendanceRecords,
@@ -33,19 +32,21 @@ export const AdminDashboard: React.FC = () => {
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   useEffect(() => {
-    const refresh = () => void refreshAttendanceRecords();
+    let inFlight: Promise<void> | null = null;
+    const refresh = () => {
+      if (inFlight) return;
+      inFlight = refreshAttendanceRecords().finally(() => {
+        inFlight = null;
+      });
+    };
     refresh();
     window.addEventListener('focus', refresh);
-    const timer = window.setInterval(refresh, 15000);
+    const timer = window.setInterval(refresh, 30000);
     return () => {
       window.removeEventListener('focus', refresh);
       window.clearInterval(timer);
     };
   }, [refreshAttendanceRecords]);
-
-  useEffect(() => {
-    void refreshUsers();
-  }, [refreshUsers]);
 
   const mentors = useMemo(() => users.filter((u) => u.role === 'mentor'), [users]);
   const trainees = useMemo(() => users.filter((u) => u.role === 'trainee'), [users]);

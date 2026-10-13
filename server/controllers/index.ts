@@ -147,7 +147,7 @@ export const leaveController = {
     try {
       const { role } = req.user!;
       const rows = await getLeaveRequests(role, req.user);
-      res.json({ success: true, leaveRequests: rows });
+      res.json({ success: true, requests: rows, leaveRequests: rows });
     } catch (error: any) {
       res.status(500).json({ success: false, message: error.message });
     }
@@ -183,7 +183,8 @@ export const missionController = {
     try {
       const { role } = req.user!;
       const rows = await getMissions(role, req.user);
-      res.json({ success: true, missions: rows });
+      const submissions = await getMissionSubmissions(role, req.user);
+      res.json({ success: true, missions: rows, submissions });
     } catch (error: any) {
       res.status(500).json({ success: false, message: error.message });
     }
