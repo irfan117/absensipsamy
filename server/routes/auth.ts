@@ -105,6 +105,25 @@ router.post('/logout', (_req: Request, res: Response) => {
   return res.json({ success: true, message: 'Logout berhasil.' });
 });
 
+router.put('/kejuruan', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    if (req.user?.role !== 'mentor') {
+      return res.status(403).json({ success: false, message: 'Pengaturan kejuruan ini hanya untuk mentor.' });
+    }
+    const kejuruanId = String(req.body?.kejuruanId ?? '').trim();
+    const [programs] = await getPool().query<any[]>(
+      'SELECT id, name FROM kejuruan WHERE id = ? LIMIT 1', [kejuruanId]
+    );
+    if (!programs?.[0]) {
+      return res.status(400).json({ success: false, message: 'Pilih kejuruan yang valid.' });
+    }
+    await getPool().query('UPDATE users SET kejuruan_id = ?, kejuruan_name = ? WHERE id = ?', [programs[0].id, programs[0].name, req.user.id]);
+    return res.json({ success: true, message: 'Kejuruan profil berhasil diperbarui.', kejuruanId: String(programs[0].id), kejuruanName: String(programs[0].name) });
+  } catch (error: any) {
+    return res.status(500).json({ success: false, message: error?.message || 'Gagal memperbarui kejuruan profil.' });
+  }
+});
+
 router.post('/change-password', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const currentPassword = String(req.body?.currentPassword ?? '').trim();

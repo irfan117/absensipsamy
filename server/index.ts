@@ -11,6 +11,7 @@ import dailyReportsRoutes from './routes/daily-reports.js';
 import settingsRoutes from './routes/settings.js';
 import hallOfFameRoutes from './routes/hall-of-fame.js';
 import authRoutes from './routes/auth.js';
+import usersRoutes from './routes/users.js';
 
 dotenv.config();
 
@@ -50,6 +51,7 @@ app.use((req: any, res: any, next: any) => {
 
 // API Routes
 app.use('/api/auth', authRoutes);
+app.use('/api/users', usersRoutes);
 app.use('/api/kejuruan', kejuruanRoutes);
 app.use('/api/attendance', attendanceRoutes);
 app.use('/api/leaves', leaveRoutes);

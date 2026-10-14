@@ -11,7 +11,7 @@ interface SubmitWorkModalProps {
     missionId: string;
     submissionLink?: string;
     notes: string;
-  }) => { success: boolean; message: string };
+  }) => Promise<{ success: boolean; message: string }>;
 }
 
 export const SubmitWorkModal: React.FC<SubmitWorkModalProps> = ({
@@ -23,29 +23,36 @@ export const SubmitWorkModal: React.FC<SubmitWorkModalProps> = ({
   const [submissionLink, setSubmissionLink] = useState('');
   const [notes, setNotes] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
 
   if (!mission) return null;
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!submissionLink.trim() && !notes.trim()) {
       setError('Harap sertakan tautan hasil kerja atau catatan penyelesaian.');
       return;
     }
 
-    const res = onSubmit({
-      missionId: mission.id,
-      submissionLink: submissionLink.trim() || undefined,
-      notes: notes.trim(),
-    });
-
-    if (res.success) {
-      setSubmissionLink('');
-      setNotes('');
-      setError(null);
-      onClose();
-    } else {
-      setError(res.message);
+    setSubmitting(true);
+    try {
+      const res = await onSubmit({
+        missionId: mission.id,
+        submissionLink: submissionLink.trim() || undefined,
+        notes: notes.trim(),
+      });
+      if (res.success) {
+        setSubmissionLink('');
+        setNotes('');
+        setError(null);
+        onClose();
+      } else {
+        setError(res.message);
+      }
+    } catch (submitError) {
+      setError(submitError instanceof Error ? submitError.message : 'Pengumpulan misi gagal.');
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -108,10 +115,11 @@ export const SubmitWorkModal: React.FC<SubmitWorkModalProps> = ({
           </button>
           <button
             type="submit"
-            className="px-5 py-2.5 rounded-xl bg-[#2E7D32] hover:bg-[#256628] text-white text-xs font-bold transition flex items-center gap-1.5 shadow-2xs"
+            disabled={submitting || (!submissionLink.trim() && !notes.trim())}
+            className="px-5 py-2.5 rounded-xl bg-[#2E7D32] hover:bg-[#256628] text-white text-xs font-bold transition flex items-center gap-1.5 shadow-2xs disabled:opacity-60 disabled:cursor-wait"
           >
             <Send className="w-3.5 h-3.5" />
-            <span>Kirim Tugas</span>
+            <span>{submitting ? 'Mengirim...' : 'Kirim Tugas'}</span>
           </button>
         </div>
       </form>
