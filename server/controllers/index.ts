@@ -1,5 +1,5 @@
 import { Request, Response } from 'express';
-import { getPool } from '../config.js';
+import { getPool } from '../config/index.js';
 import {
   getKejuruan, createKejuruan, updateKejuruan, deleteKejuruan,
   getAttendanceRecords, upsertAttendanceRecord,
@@ -47,7 +47,14 @@ export const kejuruanController = {
         rows = await getKejuruan('trainee', req.user, programNames);
       }
 
-      res.json({ success: true, kejuruanList: rows });
+      const kejuruanList = rows.map((row: any) => ({
+        id: String(row.id), name: String(row.name || ''), code: String(row.code || ''),
+        category: String(row.category || ''), color: String(row.color || ''),
+        description: String(row.description || ''), mentorId: row.mentor_id || undefined,
+        mentorName: row.mentor_name || undefined,
+        subPrograms: Array.isArray(row.sub_programs) ? row.sub_programs : undefined,
+      }));
+      res.json({ success: true, kejuruanList });
     } catch (error: any) {
       res.status(500).json({ success: false, message: error.message });
     }
@@ -97,6 +104,38 @@ export const kejuruanController = {
   },
 };
 
+export const usersController = {
+  getAll: async (req: Request, res: Response) => {
+    try {
+      const user = req.user!;
+      let rows: any[];
+      if (user.role === 'admin') {
+        [rows] = await getPool().query<any[]>("SELECT * FROM users ORDER BY name");
+      } else if (user.role === 'mentor') {
+        const programs = await getKejuruan('mentor', user);
+        const ids = [...new Set(programs.map((program: any) => String(program.id)))];
+        if (!ids.length) return res.json({ success: true, users: [] });
+        [rows] = await getPool().query<any[]>(
+          `SELECT * FROM users WHERE role = 'trainee' AND kejuruan_id IN (${ids.map(() => '?').join(',')}) ORDER BY name`,
+          ids
+        );
+      } else {
+        [rows] = await getPool().query<any[]>('SELECT * FROM users WHERE id = ? LIMIT 1', [user.id]);
+      }
+      const users = rows.map((row: any) => ({
+        id: String(row.id), nim: String(row.nim || ''), name: String(row.name || ''),
+        email: row.email || '', role: row.role, avatar: row.avatar || '', phone: row.phone || '',
+        status: row.status || 'active', joinedDate: row.joined_date || '',
+        kejuruanId: row.kejuruan_id || undefined, kejuruanName: row.kejuruan_name || undefined,
+        loginCode: row.login_code || undefined,
+      }));
+      res.json({ success: true, users });
+    } catch (error: any) {
+      res.status(500).json({ success: false, message: error.message });
+    }
+  },
+};
+
 export const attendanceController = {
   getAll: async (req: Request, res: Response) => {
     try {
@@ -113,6 +152,17 @@ export const attendanceController = {
     try {
       const { role } = req.user!;
       const userId = role === 'trainee' ? req.user!.id : (req.body.userId || req.user!.id);
+      if (role === 'mentor' && userId !== req.user!.id) {
+        const assignedPrograms = await getKejuruan('mentor', req.user!);
+        const [targetRows] = await getPool().query<any[]>(
+          'SELECT kejuruan_id FROM users WHERE id = ? LIMIT 1',
+          [userId]
+        );
+        const assignedIds = new Set(assignedPrograms.map((program: any) => String(program.id)));
+        if (!targetRows.length || !assignedIds.has(String(targetRows[0].kejuruan_id || ''))) {
+          return res.status(403).json({ success: false, message: 'Anda hanya dapat mengubah presensi peserta kejuruan bimbingan Anda.' });
+        }
+      }
       const result = await upsertAttendanceRecord({
         id: req.body.id,
         userName: req.body.userName,
@@ -164,12 +214,12 @@ export const leaveController = {
 
   review: async (req: Request, res: Response) => {
     try {
+      if (req.user!.role !== 'admin' && req.user!.role !== 'mentor') return res.status(403).json({ success: false, message: 'Hanya admin atau mentor yang dapat memverifikasi izin.' });
       const result = await reviewLeaveRequest(
         req.params.id,
         req.body.status,
         req.body.reviewNotes,
-        req.user?.role,
-        req.user?.name
+        req.user
       );
       res.json({ success: true, request: result });
     } catch (error: any) {
@@ -192,7 +242,18 @@ export const missionController = {
 
   create: async (req: Request, res: Response) => {
     try {
-      const result = await createMission(req.body);
+      const user = req.user!;
+      if (user.role !== 'admin' && user.role !== 'mentor') return res.status(403).json({ success: false, message: 'Hanya admin atau mentor yang dapat membuat misi.' });
+      const data = { ...req.body };
+      if (user.role === 'mentor') {
+        const assignedPrograms = await getKejuruan('mentor', user);
+        const target = assignedPrograms.find((program: any) => String(program.id) === String(data.kejuruanId));
+        if (!target) return res.status(403).json({ success: false, message: 'Misi hanya dapat dibuat untuk kejuruan bimbingan Anda.' });
+        data.mentorId = user.id;
+        data.mentorName = user.name;
+        data.kejuruanName = target.name;
+      }
+      const result = await createMission(data);
       res.status(201).json({ success: true, mission: result });
     } catch (error: any) {
       res.status(400).json({ success: false, message: error.message });
@@ -202,6 +263,23 @@ export const missionController = {
   update: async (req: Request, res: Response) => {
     try {
       const { id } = req.params;
+      const user = req.user!;
+      if (user.role !== 'admin' && user.role !== 'mentor') return res.status(403).json({ success: false, message: 'Hanya admin atau mentor yang dapat mengubah misi.' });
+      if (user.role === 'mentor') {
+        const [missionRows] = await getPool().query<any[]>('SELECT mentor_id, kejuruan_id FROM missions WHERE id = ? LIMIT 1', [id]);
+        const assignedPrograms = await getKejuruan('mentor', user);
+        const updates = { ...req.body };
+        const allowedIds = new Set(assignedPrograms.map((program: any) => String(program.id)));
+        if (!missionRows.length || !allowedIds.has(String(missionRows[0].kejuruan_id || '')) || !allowedIds.has(String(updates.kejuruanId ?? missionRows[0].kejuruan_id))) {
+          return res.status(403).json({ success: false, message: 'Anda hanya dapat mengubah misi dalam kejuruan bimbingan.' });
+        }
+        updates.mentorId = missionRows[0].mentor_id || user.id;
+        updates.mentorName = missionRows[0].mentor_id ? undefined : user.name;
+        delete updates.mentorId;
+        delete updates.mentorName;
+        const result = await updateMission(id, updates);
+        return res.json({ success: true, mission: result });
+      }
       const result = await updateMission(id, req.body);
       res.json({ success: true, mission: result });
     } catch (error: any) {
@@ -212,6 +290,14 @@ export const missionController = {
   delete: async (req: Request, res: Response) => {
     try {
       const { id } = req.params;
+      const user = req.user!;
+      if (user.role !== 'admin' && user.role !== 'mentor') return res.status(403).json({ success: false, message: 'Hanya admin atau mentor yang dapat menghapus misi.' });
+      if (user.role === 'mentor') {
+        const [missionRows] = await getPool().query<any[]>('SELECT kejuruan_id FROM missions WHERE id = ? LIMIT 1', [id]);
+        const assignedPrograms = await getKejuruan('mentor', user);
+        const allowedIds = new Set(assignedPrograms.map((program: any) => String(program.id)));
+        if (!missionRows.length || !allowedIds.has(String(missionRows[0].kejuruan_id || ''))) return res.status(403).json({ success: false, message: 'Anda hanya dapat menghapus misi dalam kejuruan bimbingan.' });
+      }
       const result = await deleteMission(id);
       res.json({ success: true, deleted: result.affectedRows > 0 });
     } catch (error: any) {
@@ -221,8 +307,9 @@ export const missionController = {
 
   submitWork: async (req: Request, res: Response) => {
     try {
+      if (req.user!.role !== 'trainee') return res.status(403).json({ success: false, message: 'Hanya peserta yang dapat mengumpulkan misi.' });
       const result = await submitMissionWork(req.body, req.user!);
-      res.json({ success: true, submission: result });
+      res.json({ success: true, message: 'Tugas misi berhasil dikumpulkan.', submission: result });
     } catch (error: any) {
       res.status(400).json({ success: false, message: error.message });
     }
@@ -230,13 +317,13 @@ export const missionController = {
 
   review: async (req: Request, res: Response) => {
     try {
+      if (req.user!.role !== 'admin' && req.user!.role !== 'mentor') return res.status(403).json({ success: false, message: 'Hanya admin atau mentor yang dapat menilai submission.' });
       const result = await reviewMissionSubmission(
         req.params.id,
         req.body.status,
         req.body.feedback,
-        req.body.awardedPoints,
-        req.user?.role,
-        req.user?.name
+        req.body.awardedPoints ?? req.body.points,
+        req.user
       );
       res.json({ success: true, submission: result });
     } catch (error: any) {
@@ -267,12 +354,12 @@ export const dailyReportController = {
 
   review: async (req: Request, res: Response) => {
     try {
+      if (req.user!.role !== 'admin' && req.user!.role !== 'mentor') return res.status(403).json({ success: false, message: 'Hanya admin atau mentor yang dapat mereview laporan.' });
       const result = await reviewDailyReport(
         req.params.id,
         req.body.status,
         req.body.reviewNotes,
-        req.user?.role,
-        req.user?.name
+        req.user
       );
       res.json({ success: true, report: result });
     } catch (error: any) {

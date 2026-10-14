@@ -151,26 +151,28 @@ export const UpsertMissionModal: React.FC<UpsertMissionModalProps> = ({
           </div>
         </div>
 
-        <div>
-          <label className="block text-xs font-bold text-[#123B59] mb-1">
-            Program Kejuruan Target
-          </label>
-          <select
-            value={kejuruanId}
-            onChange={(e) => {
-              setKejuruanId(e.target.value);
-              const target = kejuruanList.find((k) => k.id === e.target.value);
-              if (target) setKejuruanName(target.name);
-            }}
-            className="w-full text-xs p-3 rounded-xl border border-[#E4EAF0] bg-[#F8FAFB] text-[#123B59] font-bold outline-none focus:border-[#4C83B5]"
-          >
-            {kejuruanList.map((k) => (
-              <option key={k.id} value={k.id}>
-                {k.name}
-              </option>
-            ))}
-          </select>
-        </div>
+        {!isMentor && (
+          <div>
+            <label className="block text-xs font-bold text-[#123B59] mb-1">
+              Program Kejuruan Target
+            </label>
+            <select
+              value={kejuruanId}
+              onChange={(e) => {
+                setKejuruanId(e.target.value);
+                const target = kejuruanList.find((k) => k.id === e.target.value);
+                if (target) setKejuruanName(target.name);
+              }}
+              className="w-full text-xs p-3 rounded-xl border border-[#E4EAF0] bg-[#F8FAFB] text-[#123B59] font-bold outline-none focus:border-[#4C83B5]"
+            >
+              {kejuruanList.map((k) => (
+                <option key={k.id} value={k.id}>
+                  {k.name}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
 
         <div>
           <label className="block text-xs font-bold text-[#123B59] mb-1">

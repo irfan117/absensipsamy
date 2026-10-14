@@ -36,6 +36,7 @@ interface AppContextType {
   changePassword: (currentPassword: string, newPassword: string) => Promise<{ success: boolean; message: string }>;
   updateMyAvatar: (avatar: string) => Promise<{ success: boolean; message: string }>;
   addUser: (userData: Omit<User, 'id'>) => Promise<{ success: boolean; message: string; user?: User }>;
+  updateMyKejuruan: (kejuruanId: string) => Promise<{ success: boolean; message: string }>;
   refreshUsers: () => Promise<void>;
   refreshLeaveRequests: () => Promise<void>;
   refreshMissions: () => Promise<void>;
@@ -53,7 +54,7 @@ interface AppContextType {
   submitLeaveRequest: (req: { type: 'izin' | 'sakit'; startDate: string; endDate: string; reason: string; attachmentUrl: string; }) => Promise<{ success: boolean; message: string }>;
   reviewLeaveRequest: (id: string, status: 'approved' | 'rejected', reviewNotes?: string) => Promise<{ success: boolean; message: string }>;
   addMission: (missionData: Omit<Mission, 'id' | 'createdAt'>) => Promise<void>;
-  updateMission: (id: string, updates: Partial<Mission>) => void;
+  updateMission: (id: string, updates: Partial<Mission>) => Promise<void>;
   deleteMission: (id: string) => Promise<void>;
   submitMissionWork: (submissionData: { missionId: string; submissionLink?: string; notes: string; }) => Promise<{ success: boolean; message: string }>;
   reviewMissionSubmission: (submissionId: string, status: 'approved' | 'rejected', feedback?: string, awardedPoints?: number) => Promise<void>;
@@ -90,6 +91,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (res.success && Array.isArray(res.users)) {
         setUsers(res.users);
       }
+    } catch {
+      setTidbStatus('error');
+    }
+  }, [jwtToken]);
+
+  const refreshKejuruan = useCallback(async () => {
+    if (!jwtToken) return;
+    try {
+      const res = await api.getKejuruan();
+      if (res.success && Array.isArray(res.kejuruanList)) setKejuruanList(res.kejuruanList);
     } catch {
       setTidbStatus('error');
     }
@@ -160,7 +171,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         if (!cancelled && res.success && res.user) {
           setCurrentUser(res.user as User);
           setJwtToken(savedToken);
-          await Promise.allSettled([refreshUsers(), refreshAttendanceRecords(), refreshLeaveRequests(), refreshMissions(), refreshDailyReports()]);
+          await Promise.allSettled([refreshUsers(), refreshKejuruan(), refreshAttendanceRecords(), refreshLeaveRequests(), refreshMissions(), refreshDailyReports()]);
           return;
         }
         if (!cancelled) {
@@ -184,7 +195,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   useEffect(() => {
     if (!jwtToken) return;
-    void Promise.allSettled([refreshUsers(), refreshAttendanceRecords(), refreshLeaveRequests(), refreshMissions(), refreshDailyReports()]);
+    void Promise.allSettled([refreshUsers(), refreshKejuruan(), refreshAttendanceRecords(), refreshLeaveRequests(), refreshMissions(), refreshDailyReports()]);
   }, [jwtToken]);
 
   const loginWithCode = async (code: string, password?: string) => {
@@ -194,7 +205,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setCurrentUser(res.user as User);
         setJwtToken(res.token || api.getToken());
         if (res.token) api.setToken(res.token);
-        await Promise.allSettled([refreshUsers(), refreshAttendanceRecords(), refreshLeaveRequests(), refreshMissions(), refreshDailyReports()]);
+        await Promise.allSettled([refreshUsers(), refreshKejuruan(), refreshAttendanceRecords(), refreshLeaveRequests(), refreshMissions(), refreshDailyReports()]);
       }
       return res;
     } catch (error: any) {
@@ -209,7 +220,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setCurrentUser(res.user as User);
         setJwtToken(res.token || api.getToken());
         if (res.token) api.setToken(res.token);
-        await Promise.allSettled([refreshUsers(), refreshAttendanceRecords(), refreshLeaveRequests(), refreshMissions(), refreshDailyReports()]);
+        await Promise.allSettled([refreshUsers(), refreshKejuruan(), refreshAttendanceRecords(), refreshLeaveRequests(), refreshMissions(), refreshDailyReports()]);
       }
       return res;
     } catch (error: any) {
@@ -257,6 +268,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
+  const updateMyKejuruan = async (kejuruanId: string) => {
+    try {
+      const res = await api.updateMyKejuruan(kejuruanId);
+      if (res.success && currentUser?.role === 'mentor') {
+        setCurrentUser({ ...currentUser, kejuruanId: res.kejuruanId, kejuruanName: res.kejuruanName });
+        setUsers((prev) => prev.map((user) => user.id === currentUser.id
+          ? { ...user, kejuruanId: res.kejuruanId, kejuruanName: res.kejuruanName }
+          : user));
+      }
+      return { success: res.success, message: res.message };
+    } catch {
+      return { success: false, message: 'Gagal memperbarui kejuruan profil.' };
+    }
+  };
+
   const resetAttendanceRecords = async () => {
     try {
       const res = await (api as any).resetAttendanceRecords?.();
@@ -283,8 +309,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const verifyAttendance = (recordId: string, status: 'verified' | 'rejected', reason?: string) => {
-    setAttendanceRecords((prev) => prev.map((r) => r.id === recordId ? { ...r, verificationStatus: status, rejectionReason: reason || r.rejectionReason } : r));
-    void (api as any).verifyAttendance?.(recordId, status, reason);
+    const record = attendanceRecords.find((item) => item.id === recordId);
+    if (!record) return;
+    const updated = {
+      ...record,
+      verificationStatus: status,
+      rejectionReason: reason || record.rejectionReason,
+      verifiedBy: currentUser?.name,
+      verifiedAt: new Date().toISOString(),
+      canWriteReview: true,
+    } as AttendanceRecord;
+    setAttendanceRecords((prev) => prev.map((r) => r.id === recordId ? updated : r));
+    void api.saveAttendanceRecord(updated).catch(() => { void refreshAttendanceRecords(); });
   };
 
   const markAttendanceStatus = (
@@ -292,7 +328,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     newStatus: 'hadir' | 'terlambat' | 'izin' | 'sakit' | 'alpha',
     newVerification?: 'pending' | 'verified' | 'rejected'
   ) => {
-    setAttendanceRecords((prev) => prev.map((r) => r.id === recordId ? { ...r, status: newStatus, verificationStatus: newVerification ?? r.verificationStatus } : r));
+    const record = attendanceRecords.find((item) => item.id === recordId);
+    if (!record) return;
+    const updated = {
+      ...record,
+      status: newStatus,
+      verificationStatus: newVerification ?? record.verificationStatus,
+      verifiedBy: currentUser?.name,
+      verifiedAt: new Date().toISOString(),
+      canWriteReview: true,
+    } as AttendanceRecord;
+    setAttendanceRecords((prev) => prev.map((r) => r.id === recordId ? updated : r));
+    void api.saveAttendanceRecord(updated).catch(() => { void refreshAttendanceRecords(); });
   };
 
   const manualAddOrUpdateAttendance = (
@@ -302,12 +349,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     checkInTime?: string,
     notes?: string
   ) => {
-    setAttendanceRecords((prev) => {
-      const existing = prev.find((r) => r.userId === userId && r.date === date);
-      if (existing) {
-        return prev.map((r) => r.id === existing.id ? { ...r, status, checkInTime: checkInTime || r.checkInTime, notes: notes || r.notes } : r);
-      }
-      const newRec: AttendanceRecord = {
+    const existing = attendanceRecords.find((r) => r.userId === userId && r.date === date);
+    const newRec: AttendanceRecord = existing ? {
+      ...existing,
+      status,
+      checkInTime: checkInTime || existing.checkInTime,
+      notes: notes || existing.notes,
+      verificationStatus: 'verified',
+      verifiedBy: currentUser?.name,
+      verifiedAt: new Date().toISOString(),
+    } : {
         id: `att-man-${Date.now()}`,
         userId,
         userName: users.find((u) => u.id === userId)?.name || 'Manual User',
@@ -321,8 +372,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         verificationStatus: 'verified',
         notes: notes || 'Manual oleh admin',
       };
-      return [newRec, ...prev];
-    });
+    setAttendanceRecords((prev) => existing
+      ? prev.map((record) => record.id === existing.id ? newRec : record)
+      : [newRec, ...prev]);
+    void api.saveAttendanceRecord({ ...newRec, canWriteReview: true } as AttendanceRecord).catch(() => { void refreshAttendanceRecords(); });
   };
 
   const submitLeaveRequest = async (req: { type: 'izin' | 'sakit'; startDate: string; endDate: string; reason: string; attachmentUrl: string; }) => {
@@ -348,23 +401,27 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const addMission = async (missionData: Omit<Mission, 'id' | 'createdAt'>) => {
-    const newMission: Mission = { ...missionData, id: `mis-${Date.now()}`, createdAt: new Date().toISOString(), status: 'active' };
-    setMissions((prev) => [newMission, ...prev]);
     try {
-      await (api as any).createMission?.(missionData);
-    } catch {
-      // Graceful fallback for offline mode.
+      const response = await api.createMission(missionData as Mission);
+      if (response.success && response.mission) {
+        setMissions((prev) => [response.mission, ...prev.filter((mission) => mission.id !== response.mission.id)]);
+      }
+    } catch (error) {
+      setTidbStatus('error');
+      throw error;
     }
   };
 
-  const updateMission = (id: string, updates: Partial<Mission>) => {
+  const updateMission = async (id: string, updates: Partial<Mission>) => {
+    const response = await api.updateMission(id, updates);
+    if (!response.success) throw new Error(response.message || 'Misi gagal diperbarui.');
     setMissions((prev) => prev.map((m) => (m.id === id ? { ...m, ...updates } : m)));
-    void (api as any).updateMission?.(id, updates);
   };
 
   const deleteMission = async (id: string) => {
+    const response = await api.deleteMission(id);
+    if (!response.success) throw new Error(response.message || 'Misi gagal dihapus.');
     setMissions((prev) => prev.filter((m) => m.id !== id));
-    void (api as any).deleteMission?.(id);
   };
 
   const submitMissionWork = async (submissionData: { missionId: string; submissionLink?: string; notes: string; }) => {
@@ -374,8 +431,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     try {
       const res = await api.submitMissionWork(submissionData);
       if (!res.success) return { success: false, message: res.message || 'Gagal mengirim hasil misi.' };
-      if (res.submission) setMissionSubmissions((prev) => [res.submission!, ...prev.filter((s) => s.missionId !== targetMission.id || s.traineeId !== currentUser.id)]);
-      else await refreshMissions();
+      if (res.submission) {
+        setMissionSubmissions((prev) => [
+          res.submission!,
+          ...prev.filter((s) => s.missionId !== targetMission.id || s.traineeId !== currentUser.id),
+        ]);
+      } else {
+        await refreshMissions();
+      }
       return { success: true, message: res.message || 'Tugas misi berhasil dikumpulkan!' };
     } catch (error: any) {
       return { success: false, message: error?.message || 'Gagal mengirim hasil misi.' };
@@ -388,12 +451,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     feedback?: string,
     awardedPoints?: number
   ) => {
-    try {
-      const res = await api.reviewMissionSubmission(submissionId, { status, feedback, awardedPoints });
-      if (res.success) await refreshMissions();
-    } catch {
-      // Keep server state as the source of truth after a failed review.
-    }
+    const response = await api.reviewMissionSubmission(submissionId, { status, feedback, awardedPoints });
+    if (!response.success) throw new Error(response.message || 'Review submission gagal.');
+    setMissionSubmissions((prev) => prev.map((submission) => (
+      submission.id === submissionId ? response.submission : submission
+    )));
   };
 
   const resetMentorMissionData = async () => {
@@ -485,12 +547,37 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (6371000 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)) > radiusMeters) return { success: false, message: `Anda berada di luar radius kantor (${radiusMeters} m).` };
     }
     try {
-      const date = getTodayDateString();
-      const checkInTime = getCurrentTimeWIB();
-      const late = checkInTime.slice(0, 5) > (settings.lateLimitTime || '09:00');
-      const res = await api.clockIn({ id: `att-${currentUser.id}-${date}`, userId: currentUser.id, userName: currentUser.name, userNim: currentUser.nim || '', userRole: currentUser.role, kejuruanId: currentUser.kejuruanId || '', kejuruanName: currentUser.kejuruanName || '', date, checkInTime, status: late ? 'terlambat' : 'hadir', verificationStatus: 'pending', workMode, location: workMode === 'WFH' ? 'WFH' : settings.officeLocation.name, coordinates, checkInCoordinates: coordinates, notes: notes || (late ? 'Terlambat check-in' : 'Hadir tepat waktu'), photoUrl });
-      if (res.success) { await refreshAttendanceRecords(); setTidbStatus('connected'); }
-      return res;
+      const today = getTodayDateString();
+      const time = getCurrentTimeWIB();
+      const existing = attendanceRecords.find((attendance) => attendance.userId === currentUser.id && attendance.date === today);
+      if (existing?.checkInTime) return { success: false, message: `Anda sudah presensi masuk pukul ${existing.checkInTime}.` };
+      const status = time.slice(0, 5) > (settings.lateLimitTime || '09:00') ? 'terlambat' : 'hadir';
+      const record: AttendanceRecord = {
+        ...(existing || {} as AttendanceRecord),
+        id: existing?.id || `att-${currentUser.id}-${today}`,
+        userId: currentUser.id,
+        userName: currentUser.name,
+        userNim: currentUser.nim || '',
+        userRole: currentUser.role,
+        kejuruanId: currentUser.kejuruanId || '',
+        kejuruanName: currentUser.kejuruanName || '',
+        date: today,
+        checkInTime: time,
+        status,
+        verificationStatus: 'pending',
+        notes: notes || (status === 'terlambat' ? 'Terlambat check-in' : 'Hadir tepat waktu'),
+        photoUrl,
+        coordinates,
+        checkInCoordinates: coordinates,
+        location: workMode === 'WFH' ? 'WFH' : settings.officeLocation.name,
+        workMode,
+      };
+      const res = await api.clockIn(record);
+      if (res.success) {
+        await refreshAttendanceRecords();
+        setTidbStatus('connected');
+      }
+      return { success: res.success, message: res.message || 'Presensi masuk berhasil.' };
     } catch (error: any) {
       setTidbStatus('error');
       return { success: false, message: error?.message || 'Gagal melakukan presensi masuk.' };
@@ -510,9 +597,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (6371000 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)) > radiusMeters) return { success: false, message: `Anda berada di luar radius kantor (${radiusMeters} m).` };
     }
     try {
-      const res = await api.clockOut({ ...record, checkOutTime: getCurrentTimeWIB(), checkOutCoordinates: coordinates, coordinates, notes: notes || record.notes });
+      const existing = getTodayRecordForUser(currentUser.id);
+      if (!existing?.checkInTime) return { success: false, message: 'Anda belum melakukan presensi masuk hari ini.' };
+      if (existing.checkOutTime) return { success: false, message: `Anda sudah presensi keluar pukul ${existing.checkOutTime}.` };
+      const updated = { ...existing, checkOutTime: getCurrentTimeWIB(), notes: notes || existing.notes, checkOutCoordinates: coordinates, canWriteReview: true } as AttendanceRecord;
+      const res = await api.clockOut(updated);
       if (res.success) await refreshAttendanceRecords();
-      return res;
+      return { success: res.success, message: res.message || 'Presensi keluar berhasil.' };
     } catch (error: any) {
       return { success: false, message: error?.message || 'Gagal melakukan presensi keluar.' };
     }
@@ -542,6 +633,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         changePassword,
         updateMyAvatar,
         addUser,
+        updateMyKejuruan,
         refreshUsers,
         refreshLeaveRequests,
         refreshMissions,

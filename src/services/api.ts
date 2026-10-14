@@ -151,31 +151,26 @@ export const api = {
   },
 
   async getAttendanceRecords(): Promise<{ success: boolean; records: AttendanceRecord[]; settings?: AttendanceSettings }> {
-    const data = await this.getAppData();
-    return { success: data.success, records: data.attendanceRecords || [], settings: data.settings || undefined };
-  },
-
-  async getDailyReports(): Promise<{ success: boolean; dailyReports: DailyReport[] }> {
-    const data = await this.getAppData();
-    return { success: data.success, dailyReports: data.dailyReports || [] };
+    const data = await this.request<{ success: boolean; attendanceRecords: AttendanceRecord[] }>('/api/attendance');
+    return { success: data.success, records: data.attendanceRecords || [] };
   },
 
   async getTraineeHallOfFame(): Promise<{ success: boolean; trainees: TraineeHallOfFameEntry[] }> {
-    return this.request<{ success: boolean; trainees: TraineeHallOfFameEntry[] }>('/api/app-data/hall-of-fame/trainees');
+    return this.request<{ success: boolean; trainees: TraineeHallOfFameEntry[] }>('/api/hall-of-fame/trainees');
   },
 
   async getMentorHallOfFame(): Promise<{ success: boolean; mentors: MentorHallOfFameEntry[] }> {
-    return this.request<{ success: boolean; mentors: MentorHallOfFameEntry[] }>('/api/app-data/hall-of-fame/mentors');
+    return this.request<{ success: boolean; mentors: MentorHallOfFameEntry[] }>('/api/hall-of-fame/mentors');
   },
 
   async resetTraineeHallOfFamePoints(): Promise<{ success: boolean; count: number; message: string }> {
-    return this.request<{ success: boolean; count: number; message: string }>('/api/app-data/hall-of-fame/reset-trainee-points', {
+    return this.request<{ success: boolean; count: number; message: string }>('/api/hall-of-fame/reset-trainee-points', {
       method: 'POST',
     });
   },
 
   async resetMentorMissionData(): Promise<{ success: boolean; missions: number; submissions: number; message: string }> {
-    return this.request<{ success: boolean; missions: number; submissions: number; message: string }>('/api/app-data/missions/reset', {
+    return this.request<{ success: boolean; missions: number; submissions: number; message: string }>('/api/hall-of-fame/reset-mentor-data', {
       method: 'POST',
     });
   },
@@ -188,14 +183,14 @@ export const api = {
   },
 
   async reviewDailyReport(id: string, status: 'approved' | 'rejected', reviewNotes: string): Promise<{ success: boolean; message: string; report: DailyReport }> {
-    return this.request(`/api/app-data/daily-reports/${encodeURIComponent(id)}/review`, {
+    return this.request(`/api/daily-reports/${encodeURIComponent(id)}/review`, {
       method: 'PATCH',
       body: JSON.stringify({ status, reviewNotes }),
     });
   },
 
   async submitDailyReport(report: DailyReport): Promise<{ success: boolean; message: string; report: DailyReport }> {
-    return this.request('/api/app-data/daily-reports', {
+    return this.request('/api/daily-reports', {
       method: 'POST',
       body: JSON.stringify(report),
     });
@@ -209,18 +204,18 @@ export const api = {
   },
 
   async saveAttendanceRecord(record: AttendanceRecord): Promise<{ success: boolean; message: string; duplicate?: boolean; attendanceRecord: AttendanceRecord }> {
-    return this.request<{ success: boolean; message: string; duplicate?: boolean; attendanceRecord: AttendanceRecord }>('/api/app-data/attendance', {
-      method: 'PUT',
+    return this.request<{ success: boolean; message: string; duplicate?: boolean; attendanceRecord: AttendanceRecord }>('/api/attendance', {
+      method: 'POST',
       body: JSON.stringify(record),
     });
   },
 
   async clockIn(record: AttendanceRecord): Promise<{ success: boolean; message: string; attendanceRecord?: AttendanceRecord }> {
-    return this.request('/api/app-data/attendance', { method: 'PUT', body: JSON.stringify(record) });
+    return this.request('/api/attendance', { method: 'POST', body: JSON.stringify(record) });
   },
 
   async clockOut(record: AttendanceRecord): Promise<{ success: boolean; message: string; attendanceRecord?: AttendanceRecord }> {
-    return this.request('/api/app-data/attendance', { method: 'PUT', body: JSON.stringify(record) });
+    return this.request('/api/attendance', { method: 'POST', body: JSON.stringify(record) });
   },
 
   async resetAttendanceRecords(): Promise<{ success: boolean; count: number; message: string }> {
@@ -238,6 +233,10 @@ export const api = {
   // Get all users from TiDB (Admin / Mentor only)
   async getUsers(): Promise<{ success: boolean; users: User[] }> {
     return this.request<{ success: boolean; users: User[] }>('/api/users');
+  },
+
+  async getKejuruan(): Promise<{ success: boolean; kejuruanList: Kejuruan[] }> {
+    return this.request<{ success: boolean; kejuruanList: Kejuruan[] }>('/api/kejuruan');
   },
 
   // Create user (Mentor or Trainee by Admin)
@@ -268,6 +267,13 @@ export const api = {
     return this.request<{ success: boolean; message: string }>('/api/profile/avatar', {
       method: 'PUT',
       body: JSON.stringify({ avatar }),
+    });
+  },
+
+  async updateMyKejuruan(kejuruanId: string): Promise<{ success: boolean; message: string; kejuruanId?: string; kejuruanName?: string }> {
+    return this.request<{ success: boolean; message: string; kejuruanId?: string; kejuruanName?: string }>('/api/auth/kejuruan', {
+      method: 'PUT',
+      body: JSON.stringify({ kejuruanId }),
     });
   },
 
@@ -339,7 +345,12 @@ export const api = {
   },
 
   async getLeaveRequests(): Promise<{ success: boolean; requests: LeaveRequest[] }> {
-    return this.request<{ success: boolean; requests: LeaveRequest[] }>('/api/leaves');
+    const response = await this.request<{ success: boolean; requests?: LeaveRequest[]; leaveRequests?: LeaveRequest[] }>('/api/leaves');
+    return { success: response.success, requests: response.requests || response.leaveRequests || [] };
+  },
+
+  async getDailyReports(): Promise<{ success: boolean; dailyReports: DailyReport[] }> {
+    return this.request<{ success: boolean; dailyReports: DailyReport[] }>('/api/daily-reports');
   },
 
   async createLeaveRequest(data: {

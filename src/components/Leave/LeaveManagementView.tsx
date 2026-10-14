@@ -4,9 +4,10 @@ import { getTodayDateString } from '../../utils/dateUtils';
 import { MobileHeaderStatus } from '../MobileHeaderStatus';
 import { LeaveForm } from './components/LeaveForm';
 import { LeaveList } from './components/LeaveList';
+import { getMentorKejuruanIds } from '../../utils/mentorKejuruan';
 
 export const LeaveManagementView: React.FC = () => {
-  const { currentUser, leaveRequests, submitLeaveRequest, reviewLeaveRequest } = useApp();
+  const { currentUser, kejuruanList, leaveRequests, submitLeaveRequest, reviewLeaveRequest } = useApp();
 
   const today = getTodayDateString();
 
@@ -22,10 +23,11 @@ export const LeaveManagementView: React.FC = () => {
   const [reviewNotes, setReviewNotes] = useState<string>('');
 
   const isTrainee = currentUser.role === 'trainee';
+  const mentorKejuruanIds = getMentorKejuruanIds(currentUser, kejuruanList);
 
   const visibleRequests = leaveRequests.filter(l => {
     if (isTrainee) return l.userId === currentUser.id;
-    if (currentUser.role === 'mentor') return l.kejuruanId === currentUser.kejuruanId;
+    if (currentUser.role === 'mentor') return mentorKejuruanIds.includes(l.kejuruanId);
     return true;
   });
 

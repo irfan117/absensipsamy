@@ -42,8 +42,8 @@ app.use(express.json({ limit: '10mb' }));
 app.use((req: any, res: any, next: any) => {
   const cookieToken = req.headers.cookie
     ?.split(';')
-    .map(part => part.trim())
-    .find(part => part.startsWith('hadirku_auth='))
+    .map((part: string) => part.trim())
+    .find((part: string) => part.startsWith('hadirku_auth='))
     ?.slice('hadirku_auth='.length);
   if (cookieToken) {
     req.headers.authorization = `Bearer ${cookieToken}`;

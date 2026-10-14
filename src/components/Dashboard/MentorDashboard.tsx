@@ -68,7 +68,11 @@ export const MentorDashboard: React.FC = () => {
       window.removeEventListener('focus', refresh);
       window.clearInterval(timer);
     };
-  }, [currentUser.id, refreshAttendanceRecords, refreshUsers]);
+  // AppContext currently exposes refresh functions as new closures on each
+  // render. Depending on them here restarts this effect after every refresh,
+  // creating an API/state-update loop that can freeze the mentor dashboard.
+  // The authenticated user is the only value that should restart polling.
+  }, [currentUser.id]);
 
   const belongsToMentor = (kejuruanId?: string, kejuruanName?: string) => {
     const programName = normalizeProgramName(kejuruanName) || '';
