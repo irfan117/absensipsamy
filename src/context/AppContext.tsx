@@ -12,6 +12,7 @@ import {
 import { api } from '../services/api';
 import { INITIAL_KEJURUAN, INITIAL_SETTINGS } from '../data/mockData';
 import { INITIAL_MISSIONS } from '../data/missionsData';
+import { getCurrentTimeWIB, getTodayDateString } from '../utils/dateUtils';
 
 interface AppContextType {
   currentUser: User | null;
@@ -54,13 +55,14 @@ interface AppContextType {
   addMission: (missionData: Omit<Mission, 'id' | 'createdAt'>) => Promise<void>;
   updateMission: (id: string, updates: Partial<Mission>) => void;
   deleteMission: (id: string) => Promise<void>;
-  submitMissionWork: (submissionData: { missionId: string; submissionLink?: string; notes: string; }) => { success: boolean; message: string };
+  submitMissionWork: (submissionData: { missionId: string; submissionLink?: string; notes: string; }) => Promise<{ success: boolean; message: string }>;
   reviewMissionSubmission: (submissionId: string, status: 'approved' | 'rejected', feedback?: string, awardedPoints?: number) => Promise<void>;
   resetMentorMissionData: () => Promise<{ success: boolean; missions: number; submissions: number; message: string }>;
   resetTraineeHallOfFamePoints: () => Promise<{ success: boolean; count: number; message: string }>;
   updateSettings: (newSettings: Partial<AttendanceSettings>) => Promise<{ success: boolean; message: string }>;
   resetToDefaultData: () => Promise<{ success: boolean; count: number; message: string }>;
   reviewDailyReport: (reportId: string, status: 'approved' | 'rejected', reviewNotes?: string) => Promise<{ success: boolean; message: string }>;
+  submitDailyReport: (data: { date: string; description: string; photoUrl?: string; photoName?: string; submissionLink?: string }) => Promise<{ success: boolean; message: string }>;
   getUserPoints: (userId: string) => number;
 }
 
@@ -96,11 +98,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const refreshAttendanceRecords = useCallback(async () => {
     if (!jwtToken) return;
     try {
-      const res = await (api as any).getAttendanceRecords?.();
+      const res = await api.getAttendanceRecords();
       if (res?.success && Array.isArray(res.records)) {
         setAttendanceRecords(res.records);
-      } else if (res?.success && Array.isArray(res.attendanceRecords)) {
-        setAttendanceRecords(res.attendanceRecords);
       } else {
         setAttendanceRecords([]);
       }
@@ -138,7 +138,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const refreshDailyReports = useCallback(async () => {
     if (!jwtToken) return;
     try {
-      const res = await (api as any).getDailyReports?.();
+      const res = await api.getDailyReports();
       if (res?.success && Array.isArray(res.dailyReports)) {
         setDailyReports(res.dailyReports);
       }
@@ -218,9 +218,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const logout = () => {
-    api.setToken(null);
+    void api.logoutSession();
     setJwtToken(null);
     setCurrentUser(null);
+    setUsers([]);
+    setAttendanceRecords([]);
+    setLeaveRequests([]);
+    setMissionSubmissions([]);
+    setDailyReports([]);
   };
 
   const changePassword = async (currentPassword: string, newPassword: string) => {
@@ -263,7 +268,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const getTodayRecordForUser = (userId: string) => {
-    const today = new Date().toISOString().slice(0, 10);
+    const today = getTodayDateString();
     return attendanceRecords.find((r) => r.userId === userId && r.date === today);
   };
 
@@ -362,29 +367,19 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     void (api as any).deleteMission?.(id);
   };
 
-  const submitMissionWork = (submissionData: { missionId: string; submissionLink?: string; notes: string; }) => {
+  const submitMissionWork = async (submissionData: { missionId: string; submissionLink?: string; notes: string; }) => {
     if (!currentUser) return { success: false, message: 'User tidak ditemukan.' };
     const targetMission = missions.find((m) => m.id === submissionData.missionId);
     if (!targetMission) return { success: false, message: 'Misi tidak ditemukan.' };
-    const newSub: MissionSubmission = {
-      id: `sub-${Date.now()}`,
-      missionId: targetMission.id,
-      missionTitle: targetMission.title,
-      traineeId: currentUser.id,
-      traineeName: currentUser.name,
-      traineeNim: currentUser.nim || '',
-      traineeAvatar: currentUser.avatar || '',
-      kejuruanId: currentUser.kejuruanId || '',
-      kejuruanName: currentUser.kejuruanName || '',
-      submissionLink: submissionData.submissionLink,
-      notes: submissionData.notes,
-      points: targetMission.points,
-      submittedAt: new Date().toISOString(),
-      status: 'pending',
-    };
-    setMissionSubmissions((prev) => [newSub, ...prev]);
-    void (api as any).submitMissionWork?.(submissionData);
-    return { success: true, message: 'Tugas misi berhasil dikumpulkan!' };
+    try {
+      const res = await api.submitMissionWork(submissionData);
+      if (!res.success) return { success: false, message: res.message || 'Gagal mengirim hasil misi.' };
+      if (res.submission) setMissionSubmissions((prev) => [res.submission!, ...prev.filter((s) => s.missionId !== targetMission.id || s.traineeId !== currentUser.id)]);
+      else await refreshMissions();
+      return { success: true, message: res.message || 'Tugas misi berhasil dikumpulkan!' };
+    } catch (error: any) {
+      return { success: false, message: error?.message || 'Gagal mengirim hasil misi.' };
+    }
   };
 
   const reviewMissionSubmission = async (
@@ -393,8 +388,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     feedback?: string,
     awardedPoints?: number
   ) => {
-    setMissionSubmissions((prev) => prev.map((s) => s.id === submissionId ? { ...s, status, feedback, awardedPoints: status === 'approved' ? awardedPoints ?? s.points : 0 } : s));
-    void (api as any).reviewMissionSubmission?.(submissionId, { status, feedback, points: awardedPoints ?? 0 });
+    try {
+      const res = await api.reviewMissionSubmission(submissionId, { status, feedback, awardedPoints });
+      if (res.success) await refreshMissions();
+    } catch {
+      // Keep server state as the source of truth after a failed review.
+    }
   };
 
   const resetMentorMissionData = async () => {
@@ -449,26 +448,73 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
+  const submitDailyReport = async (data: { date: string; description: string; photoUrl?: string; photoName?: string; submissionLink?: string }) => {
+    if (!currentUser || currentUser.role !== 'trainee') return { success: false, message: 'Hanya peserta yang dapat mengirim laporan.' };
+    const existing = dailyReports.find((report) => report.traineeId === currentUser.id && report.date === data.date);
+    if (existing && existing.status !== 'rejected') return { success: false, message: 'Kamu sudah mengumpulkan laporan untuk tanggal ini.' };
+    const report: DailyReport = {
+      id: existing?.id || `report-${Date.now()}`,
+      traineeId: currentUser.id, traineeName: currentUser.name, traineeNim: currentUser.nim || '',
+      traineeAvatar: currentUser.avatar || '', kejuruanId: currentUser.kejuruanId || '',
+      kejuruanName: currentUser.kejuruanName || '', date: data.date, description: data.description.trim(),
+      photoUrl: data.photoUrl, photoName: data.photoName, submissionLink: data.submissionLink,
+      status: 'pending', submittedAt: new Date().toISOString(),
+    };
+    try {
+      const result = await api.submitDailyReport(report);
+      if (result.success) {
+        setDailyReports((prev) => [result.report, ...prev.filter((item) => !(item.traineeId === currentUser.id && item.date === data.date))]);
+      }
+      return { success: result.success, message: result.message };
+    } catch (error: any) {
+      return { success: false, message: error?.message || 'Gagal mengirim laporan harian.' };
+    }
+  };
+
   const getUserPoints = (userId: string) => missionSubmissions.filter((s) => s.traineeId === userId && s.status === 'approved').reduce((sum, s) => sum + (s.awardedPoints ?? s.points ?? 0), 0);
 
   const clockIn = async (notes?: string, photoUrl?: string, coordinates?: { lat: number; lng: number }, workMode: 'WFO' | 'WFH' = 'WFO') => {
     if (!currentUser) return { success: false, message: 'User tidak ditemukan.' };
+    if (currentUser.role !== 'trainee') return { success: false, message: 'Aksi ini hanya tersedia untuk peserta.' };
+    if (attendanceRecords.some((record) => record.userId === currentUser.id && record.date === getTodayDateString() && record.checkInTime)) return { success: false, message: 'Anda sudah melakukan Check-In hari ini.' };
+    if (!coordinates || !Number.isFinite(coordinates.lat) || !Number.isFinite(coordinates.lng)) return { success: false, message: 'Lokasi GPS diperlukan untuk melakukan presensi.' };
+    if (workMode === 'WFO') {
+      const { lat, lng, radiusMeters } = settings.officeLocation;
+      const rad = (n: number) => n * Math.PI / 180;
+      const a = Math.sin(rad(coordinates.lat - lat) / 2) ** 2 + Math.cos(rad(lat)) * Math.cos(rad(coordinates.lat)) * Math.sin(rad(coordinates.lng - lng) / 2) ** 2;
+      if (6371000 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)) > radiusMeters) return { success: false, message: `Anda berada di luar radius kantor (${radiusMeters} m).` };
+    }
     try {
-      const res = await (api as any).clockIn?.({ notes, photoUrl, coordinates, workMode });
-      if (res?.success) setTidbStatus('connected');
-      return res ?? { success: false, message: 'Fitur presensi masuk belum tersedia.' };
-    } catch {
-      return { success: false, message: 'Gagal melakukan presensi masuk.' };
+      const date = getTodayDateString();
+      const checkInTime = getCurrentTimeWIB();
+      const late = checkInTime.slice(0, 5) > (settings.lateLimitTime || '09:00');
+      const res = await api.clockIn({ id: `att-${currentUser.id}-${date}`, userId: currentUser.id, userName: currentUser.name, userNim: currentUser.nim || '', userRole: currentUser.role, kejuruanId: currentUser.kejuruanId || '', kejuruanName: currentUser.kejuruanName || '', date, checkInTime, status: late ? 'terlambat' : 'hadir', verificationStatus: 'pending', workMode, location: workMode === 'WFH' ? 'WFH' : settings.officeLocation.name, coordinates, checkInCoordinates: coordinates, notes: notes || (late ? 'Terlambat check-in' : 'Hadir tepat waktu'), photoUrl });
+      if (res.success) { await refreshAttendanceRecords(); setTidbStatus('connected'); }
+      return res;
+    } catch (error: any) {
+      setTidbStatus('error');
+      return { success: false, message: error?.message || 'Gagal melakukan presensi masuk.' };
     }
   };
 
   const clockOut = async (notes?: string, coordinates?: { lat: number; lng: number }) => {
     if (!currentUser) return { success: false, message: 'User tidak ditemukan.' };
+    const record = attendanceRecords.find((item) => item.userId === currentUser.id && item.date === getTodayDateString());
+    if (!record?.checkInTime) return { success: false, message: 'Anda belum melakukan Check-In hari ini.' };
+    if (record.checkOutTime) return { success: false, message: 'Anda sudah melakukan Check-Out hari ini.' };
+    if (!coordinates) return { success: false, message: 'Lokasi GPS diperlukan untuk melakukan presensi keluar.' };
+    if (record.workMode !== 'WFH') {
+      const { lat, lng, radiusMeters } = settings.officeLocation;
+      const rad = (n: number) => n * Math.PI / 180;
+      const a = Math.sin(rad(coordinates.lat - lat) / 2) ** 2 + Math.cos(rad(lat)) * Math.cos(rad(coordinates.lat)) * Math.sin(rad(coordinates.lng - lng) / 2) ** 2;
+      if (6371000 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)) > radiusMeters) return { success: false, message: `Anda berada di luar radius kantor (${radiusMeters} m).` };
+    }
     try {
-      const res = await (api as any).clockOut?.({ notes, coordinates });
-      return res ?? { success: false, message: 'Fitur presensi keluar belum tersedia.' };
-    } catch {
-      return { success: false, message: 'Gagal melakukan presensi keluar.' };
+      const res = await api.clockOut({ ...record, checkOutTime: getCurrentTimeWIB(), checkOutCoordinates: coordinates, coordinates, notes: notes || record.notes });
+      if (res.success) await refreshAttendanceRecords();
+      return res;
+    } catch (error: any) {
+      return { success: false, message: error?.message || 'Gagal melakukan presensi keluar.' };
     }
   };
 
@@ -489,7 +535,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         authReady,
         jwtToken,
         activeTab,
-        setActiveTab,
+        setActiveTab: (tab: string) => setActiveTab(tab as typeof activeTab),
         loginWithCode,
         loginWithAdmin,
         logout,
@@ -522,6 +568,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         updateSettings,
         resetToDefaultData,
         reviewDailyReport,
+        submitDailyReport,
         getUserPoints,
       }}
     >

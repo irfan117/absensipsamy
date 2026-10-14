@@ -26,18 +26,17 @@ import {
   UserRound,
   FileSpreadsheet,
 } from 'lucide-react';
-import { INDONESIAN_DAYS, INDONESIAN_MONTHS } from './utils/dateUtils';
+import { getCurrentTimeWIB, getTodayDateString, INDONESIAN_DAYS, INDONESIAN_MONTHS } from './utils/dateUtils';
 
 const CurrentClock: React.FC = () => {
-  const [time, setTime] = useState(() => new Date());
+  const [time, setTime] = useState(() => getCurrentTimeWIB());
 
   useEffect(() => {
-    const timer = window.setInterval(() => setTime(new Date()), 1000);
+    const timer = window.setInterval(() => setTime(getCurrentTimeWIB()), 1000);
     return () => window.clearInterval(timer);
   }, []);
 
-  const pad = (value: number) => String(value).padStart(2, '0');
-  return <>{pad(time.getHours())}.{pad(time.getMinutes())}.{pad(time.getSeconds())} WIB</>;
+  return <>{time.replaceAll(':', '.')} WIB</>;
 };
 
 const MainLayout: React.FC = () => {
@@ -116,8 +115,9 @@ const MainLayout: React.FC = () => {
       : currentUser.role === 'mentor'
       ? 'Mentor'
       : 'Peserta';
-  const now = new Date();
-  const headerDate = `${INDONESIAN_DAYS[now.getDay()]}, ${now.getDate()} ${INDONESIAN_MONTHS[now.getMonth()]} ${now.getFullYear()}`;
+  const [year, month, day] = getTodayDateString().split('-').map(Number);
+  const localDate = new Date(year, month - 1, day);
+  const headerDate = `${INDONESIAN_DAYS[localDate.getDay()]}, ${day} ${INDONESIAN_MONTHS[month - 1]} ${year}`;
 
   // Keep the welcome/date banner on attendance and mentor verification pages.
   // Other pages already have their own title and should not repeat the greeting.

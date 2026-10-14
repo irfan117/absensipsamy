@@ -150,6 +150,16 @@ export const api = {
     return this.request<{ success: boolean } & AppDataSnapshot>('/api/app-data');
   },
 
+  async getAttendanceRecords(): Promise<{ success: boolean; records: AttendanceRecord[]; settings?: AttendanceSettings }> {
+    const data = await this.getAppData();
+    return { success: data.success, records: data.attendanceRecords || [], settings: data.settings || undefined };
+  },
+
+  async getDailyReports(): Promise<{ success: boolean; dailyReports: DailyReport[] }> {
+    const data = await this.getAppData();
+    return { success: data.success, dailyReports: data.dailyReports || [] };
+  },
+
   async getTraineeHallOfFame(): Promise<{ success: boolean; trainees: TraineeHallOfFameEntry[] }> {
     return this.request<{ success: boolean; trainees: TraineeHallOfFameEntry[] }>('/api/app-data/hall-of-fame/trainees');
   },
@@ -203,6 +213,14 @@ export const api = {
       method: 'PUT',
       body: JSON.stringify(record),
     });
+  },
+
+  async clockIn(record: AttendanceRecord): Promise<{ success: boolean; message: string; attendanceRecord?: AttendanceRecord }> {
+    return this.request('/api/app-data/attendance', { method: 'PUT', body: JSON.stringify(record) });
+  },
+
+  async clockOut(record: AttendanceRecord): Promise<{ success: boolean; message: string; attendanceRecord?: AttendanceRecord }> {
+    return this.request('/api/app-data/attendance', { method: 'PUT', body: JSON.stringify(record) });
   },
 
   async resetAttendanceRecords(): Promise<{ success: boolean; count: number; message: string }> {
@@ -354,7 +372,7 @@ export const api = {
 
   async updateMission(id: string, updates: Partial<Mission>): Promise<{ success: boolean; message: string }> {
     return this.request<{ success: boolean; message: string }>(`/api/missions/${encodeURIComponent(id)}`, {
-      method: 'PUT',
+      method: 'PATCH',
       body: JSON.stringify(updates),
     });
   },
@@ -367,12 +385,18 @@ export const api = {
 
   async reviewMissionSubmission(id: string, review: {
     status: 'approved' | 'rejected';
-    feedback: string;
-    points: number;
+    feedback?: string;
+    awardedPoints?: number;
   }): Promise<{ success: boolean; message: string; submission: MissionSubmission }> {
     return this.request<{ success: boolean; message: string; submission: MissionSubmission }>(`/api/missions/submissions/${encodeURIComponent(id)}/review`, {
       method: 'PATCH',
       body: JSON.stringify(review),
+    });
+  },
+
+  async submitMissionWork(data: { missionId: string; submissionLink?: string; notes: string }): Promise<{ success: boolean; message: string; submission?: MissionSubmission }> {
+    return this.request(`/api/missions/${encodeURIComponent(data.missionId)}/submit`, {
+      method: 'POST', body: JSON.stringify({ submissionLink: data.submissionLink, notes: data.notes }),
     });
   },
 };

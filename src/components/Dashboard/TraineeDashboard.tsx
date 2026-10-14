@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import {
   getTodayDateString,
+  getCurrentTimeWIB,
   formatIndonesianDate,
   INDONESIAN_MONTHS
 } from '../../utils/dateUtils';
@@ -97,15 +98,12 @@ export const TraineeDashboard: React.FC = () => {
 
   useEffect(() => {
     const updateTime = () => {
-      const now = new Date();
-      const hh = String(now.getHours()).padStart(2, '0');
-      const mm = String(now.getMinutes()).padStart(2, '0');
-      const ss = String(now.getSeconds()).padStart(2, '0');
-      const timeStr = `${hh}.${mm}.${ss}`;
+      const time = getCurrentTimeWIB();
+      const timeStr = time.replaceAll(':', '.');
       setLiveTime(timeStr);
 
       const limit = settings?.lateLimitTime || '09:00';
-      const currentTimeHM = `${hh}:${mm}`;
+      const currentTimeHM = time.slice(0, 5);
       setIsCurrentlyLate(currentTimeHM > limit);
     };
 
@@ -124,9 +122,15 @@ export const TraineeDashboard: React.FC = () => {
     setLocationError(null);
 
     const performClockIn = async (coords?: { lat: number; lng: number }) => {
+      if (!coords) {
+        setIsLocating(false);
+        setLocationError('Izin atau akses lokasi diperlukan untuk melakukan presensi. Aktifkan GPS lalu coba lagi.');
+        return;
+      }
       const res = await clockIn(dailyNote.trim() || undefined, undefined, coords, workMode);
       setIsLocating(false);
-      showToast(res.message);
+      if (!res.success) setLocationError(res.message);
+      else showToast(res.message);
     };
 
     if ('geolocation' in navigator) {
@@ -140,7 +144,7 @@ export const TraineeDashboard: React.FC = () => {
         () => {
           performClockIn(undefined);
         },
-        { timeout: 8000 }
+        { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
       );
     } else {
       performClockIn(undefined);
@@ -152,9 +156,15 @@ export const TraineeDashboard: React.FC = () => {
     setLocationError(null);
 
     const performClockOut = async (coords?: { lat: number; lng: number }) => {
+      if (!coords) {
+        setIsLocating(false);
+        setLocationError('Izin atau akses lokasi diperlukan untuk melakukan presensi keluar. Aktifkan GPS lalu coba lagi.');
+        return;
+      }
       const res = await clockOut(dailyNote.trim() || undefined, coords);
       setIsLocating(false);
-      showToast(res.message);
+      if (!res.success) setLocationError(res.message);
+      else showToast(res.message);
     };
 
     if ('geolocation' in navigator) {
@@ -168,7 +178,7 @@ export const TraineeDashboard: React.FC = () => {
         () => {
           performClockOut(undefined);
         },
-        { timeout: 8000 }
+        { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
       );
     } else {
       performClockOut(undefined);
@@ -238,6 +248,7 @@ export const TraineeDashboard: React.FC = () => {
         lateLimitTime={settings?.lateLimitTime || '09:00'}
         isCheckedIn={isCheckedIn}
         isCheckedOut={isCheckedOut}
+        isLeaveApproved={!!todayLeave}
         checkInTime={todayRecord?.checkInTime}
         checkOutTime={todayRecord?.checkOutTime}
         dailyNote={dailyNote}

@@ -490,8 +490,8 @@ export const MissionManagementView: React.FC = () => {
         isOpen={isSubmitModalOpen}
         onClose={() => setIsSubmitModalOpen(false)}
         mission={targetMissionForSubmit}
-        onSubmit={(subData) => {
-          const res = submitMissionWork(subData);
+        onSubmit={async (subData) => {
+          const res = await submitMissionWork(subData);
           if (res.success) {
             showToast(res.message);
           }

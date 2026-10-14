@@ -59,7 +59,7 @@ export const SubmitReportForm: React.FC<SubmitReportFormProps> = ({
             {editingReport ? 'Revisi Laporan Harian' : 'Kirim Laporan Harian'}
           </h2>
         </div>
-        <p className="text-xs text-[#6F7F8D] mt-0.5">1 laporan per hari · foto wajib</p>
+        <p className="text-xs text-[#6F7F8D] mt-0.5">1 laporan per hari · foto opsional (maks. 5 MB)</p>
       </div>
 
       <form onSubmit={onSubmit} className="p-5 space-y-4">
@@ -150,7 +150,7 @@ export const SubmitReportForm: React.FC<SubmitReportFormProps> = ({
         {/* Photo upload */}
         <div>
           <label className="block text-xs font-semibold text-[#123B59] mb-1">
-            Foto Bukti Kegiatan <span className="text-[#D95B83]">*</span>
+            Foto Bukti Kegiatan <span className="text-[#6F7F8D]">(Opsional)</span>
           </label>
           <input
             type="file"

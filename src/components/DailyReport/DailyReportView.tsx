@@ -115,9 +115,13 @@ export const DailyReportView: React.FC = () => {
         setFormPhotoUrl(uploadRes.url);
         setFormPhotoName(file.name);
       } else {
+        setFormPhotoUrl(undefined);
+        setFormPhotoName(undefined);
         setFormError(uploadRes.message || 'Gagal mengunggah foto.');
       }
     } catch {
+      setFormPhotoUrl(undefined);
+      setFormPhotoName(undefined);
       setFormError('Terjadi kesalahan saat mengunggah foto.');
     } finally {
       setIsUploadingPhoto(false);
@@ -130,11 +134,6 @@ export const DailyReportView: React.FC = () => {
       setFormError('Uraian kegiatan wajib diisi.');
       return;
     }
-    if (!formPhotoUrl) {
-      setFormError('Foto bukti kegiatan wajib diunggah.');
-      return;
-    }
-
     setIsSubmitting(true);
     setFormError(null);
 

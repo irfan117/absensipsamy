@@ -11,7 +11,7 @@ interface SubmitWorkModalProps {
     missionId: string;
     submissionLink?: string;
     notes: string;
-  }) => { success: boolean; message: string };
+  }) => Promise<{ success: boolean; message: string }>;
 }
 
 export const SubmitWorkModal: React.FC<SubmitWorkModalProps> = ({
@@ -26,14 +26,17 @@ export const SubmitWorkModal: React.FC<SubmitWorkModalProps> = ({
 
   if (!mission) return null;
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!submissionLink.trim() && !notes.trim()) {
       setError('Harap sertakan tautan hasil kerja atau catatan penyelesaian.');
       return;
     }
 
-    const res = onSubmit({
+    setIsSubmitting(true);
+    const res = await onSubmit({
       missionId: mission.id,
       submissionLink: submissionLink.trim() || undefined,
       notes: notes.trim(),
@@ -47,6 +50,7 @@ export const SubmitWorkModal: React.FC<SubmitWorkModalProps> = ({
     } else {
       setError(res.message);
     }
+    setIsSubmitting(false);
   };
 
   return (
@@ -108,10 +112,11 @@ export const SubmitWorkModal: React.FC<SubmitWorkModalProps> = ({
           </button>
           <button
             type="submit"
+            disabled={isSubmitting}
             className="px-5 py-2.5 rounded-xl bg-[#2E7D32] hover:bg-[#256628] text-white text-xs font-bold transition flex items-center gap-1.5 shadow-2xs"
           >
             <Send className="w-3.5 h-3.5" />
-            <span>Kirim Tugas</span>
+            <span>{isSubmitting ? 'Mengirim...' : 'Kirim Tugas'}</span>
           </button>
         </div>
       </form>
