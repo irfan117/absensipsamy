@@ -443,12 +443,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const updateMyKejuruan = async (kejuruanId: string) => {
     try {
       const res = await api.updateMyKejuruan(kejuruanId);
-      if (res.success && currentUser?.role === 'mentor') {
-        setCurrentUser({ ...currentUser, kejuruanId: res.kejuruanId, kejuruanName: res.kejuruanName });
-        setUsers((prev) => prev.map((user) => user.id === currentUser.id
-          ? { ...user, kejuruanId: res.kejuruanId, kejuruanName: res.kejuruanName }
-          : user));
-      }
       return { success: res.success, message: res.message };
     } catch (error: any) {
       return { success: false, message: error?.message || 'Gagal memperbarui kejuruan profil.' };

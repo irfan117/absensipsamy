@@ -1,8 +1,9 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useApp } from '../../context/AppContext';
 import { MobileHeaderStatus } from '../MobileHeaderStatus';
-import { GraduationCap, UserCheck, Trash2, Search } from 'lucide-react';
+import { GraduationCap, UserCheck, Trash2, Search, CheckCircle2, XCircle } from 'lucide-react';
 import { User } from '../../types';
+import { api } from '../../services/api';
 import { parseUsersFromExcelFile, generate8DigitLoginCode, generateDefaultPassword } from '../../utils/userExcelUtils';
 
 import { TraineeHeaderActions } from './components/TraineeHeaderActions';
@@ -25,6 +26,7 @@ export const TraineeManagementView: React.FC = () => {
     updateKejuruan,
     importUsers,
     regenerateUserCredentials,
+    refreshUsers,
   } = useApp();
 
   // Filter States
@@ -47,6 +49,9 @@ export const TraineeManagementView: React.FC = () => {
   const [copiedType, setCopiedType] = useState<'code' | 'pass' | null>(null);
   const [visiblePasswords, setVisiblePasswords] = useState<Record<string, boolean>>({});
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [mentorKejuruanRequests, setMentorKejuruanRequests] = useState<Array<{ id: string; mentorId: string; mentorName: string; mentorNim: string; kejuruanId: string; kejuruanName: string; requestedAt: string }>>([]);
+  const [isLoadingKejuruanRequests, setIsLoadingKejuruanRequests] = useState(false);
+  const [reviewingKejuruanRequestId, setReviewingKejuruanRequestId] = useState('');
 
   // Import State
   const [importingFile, setImportingFile] = useState<File | null>(null);
@@ -102,6 +107,36 @@ export const TraineeManagementView: React.FC = () => {
   const showToast = (message: string) => {
     setToastMessage(message);
     setTimeout(() => setToastMessage(null), 3500);
+  };
+
+  const loadMentorKejuruanRequests = async () => {
+    if (currentUser?.role !== 'admin') return;
+    setIsLoadingKejuruanRequests(true);
+    try {
+      const result = await api.getKejuruanRequests();
+      setMentorKejuruanRequests(result.requests || []);
+    } catch (error: any) {
+      showToast(error?.message || 'Pengajuan kejuruan gagal dimuat.');
+    } finally {
+      setIsLoadingKejuruanRequests(false);
+    }
+  };
+
+  useEffect(() => {
+    void loadMentorKejuruanRequests();
+  }, [currentUser?.role]);
+
+  const reviewMentorKejuruanRequest = async (requestId: string, decision: 'approved' | 'rejected') => {
+    setReviewingKejuruanRequestId(requestId);
+    try {
+      const result = await api.reviewKejuruanRequest(requestId, decision);
+      showToast(result.message);
+      await Promise.all([loadMentorKejuruanRequests(), refreshUsers()]);
+    } catch (error: any) {
+      showToast(error?.message || 'Verifikasi kejuruan gagal.');
+    } finally {
+      setReviewingKejuruanRequestId('');
+    }
   };
 
   const copyToClipboard = (text: string, id: string, type: 'code' | 'pass') => {
@@ -272,6 +307,38 @@ export const TraineeManagementView: React.FC = () => {
         onOpenClearAll={() => handleOpenClearModal('all')}
       />
 
+      {currentUser?.role === 'admin' && (
+        <section className="surface rounded-2xl border border-[#E4EAF0] p-4 sm:p-5 space-y-3">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <h2 className="text-sm font-bold text-[#123B59]">Verifikasi Pilihan Kejuruan Mentor</h2>
+              <p className="mt-1 text-xs text-[#6F7F8D]">Mentor memilih dari katalog kejuruan yang ditambahkan admin. Penugasan aktif setelah disetujui.</p>
+            </div>
+            <span className="rounded-full bg-amber-50 px-2.5 py-1 text-xs font-bold text-amber-700">{mentorKejuruanRequests.length} menunggu</span>
+          </div>
+          {isLoadingKejuruanRequests ? (
+            <p className="text-xs text-[#6F7F8D]">Memuat pengajuan...</p>
+          ) : mentorKejuruanRequests.length === 0 ? (
+            <p className="rounded-xl bg-[#F8FAFB] p-3 text-xs text-[#6F7F8D]">Belum ada pengajuan kejuruan mentor.</p>
+          ) : (
+            <div className="space-y-2">
+              {mentorKejuruanRequests.map((request) => (
+                <div key={request.id} className="flex flex-col gap-3 rounded-xl border border-[#E4EAF0] bg-white p-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="min-w-0 text-xs">
+                    <p className="font-bold text-[#123B59]">{request.mentorName} <span className="font-normal text-[#6F7F8D]">({request.mentorNim})</span></p>
+                    <p className="mt-1 text-[#6F7F8D]">Mengajukan: <span className="font-bold text-[#28618F]">{request.kejuruanName}</span></p>
+                  </div>
+                  <div className="flex shrink-0 gap-2">
+                    <button type="button" disabled={reviewingKejuruanRequestId === request.id} onClick={() => void reviewMentorKejuruanRequest(request.id, 'rejected')} className="inline-flex items-center gap-1.5 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-bold text-rose-700 disabled:opacity-50"><XCircle className="h-4 w-4" />Tolak</button>
+                    <button type="button" disabled={reviewingKejuruanRequestId === request.id} onClick={() => void reviewMentorKejuruanRequest(request.id, 'approved')} className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-700 px-3 py-2 text-xs font-bold text-white disabled:opacity-50"><CheckCircle2 className="h-4 w-4" />Setujui</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+      )}
+
       {/* Filter Tabs & Quick Action */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap items-center gap-2">
@@ -400,7 +467,6 @@ export const TraineeManagementView: React.FC = () => {
       <AddKejuruanModal
         isOpen={isAddKjModalOpen}
         onClose={() => setIsAddKjModalOpen(false)}
-        mentors={mentors}
         kejuruanList={kejuruanList}
         onSubmit={async (kjData) => {
           const res = await addKejuruan(kjData);

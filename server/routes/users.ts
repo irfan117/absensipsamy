@@ -73,15 +73,20 @@ router.post('/', async (req: AuthenticatedRequest, res: Response) => {
   if (providedNim && !/^\d{8}$/.test(providedNim)) {
     return res.status(400).json({ success: false, message: 'NIM harus terdiri dari 8 digit angka.' });
   }
-  if (!body.kejuruanId || !body.kejuruanName) {
+  if (role === 'trainee' && (!body.kejuruanId || !body.kejuruanName)) {
     return res.status(400).json({ success: false, message: 'Program kejuruan wajib dipilih.' });
   }
 
   try {
     const pool = getPool();
-    const [programRows] = await pool.query<any[]>('SELECT id,name FROM kejuruan WHERE id = ? LIMIT 1', [body.kejuruanId]);
-    if (!programRows.length) return res.status(400).json({ success: false, message: 'Program kejuruan tidak ditemukan.' });
-    const programName = String(programRows[0].name);
+    let programId: string | null = null;
+    let programName: string | null = null;
+    if (role === 'trainee') {
+      const [programRows] = await pool.query<any[]>('SELECT id,name FROM kejuruan WHERE id = ? LIMIT 1', [body.kejuruanId]);
+      if (!programRows.length) return res.status(400).json({ success: false, message: 'Program kejuruan tidak ditemukan.' });
+      programId = String(programRows[0].id);
+      programName = String(programRows[0].name);
+    }
     let loginCode = '';
     for (let attempt = 0; attempt < 20; attempt += 1) {
       const candidate = String(randomInt(10_000_000, 100_000_000));
@@ -113,13 +118,13 @@ router.post('/', async (req: AuthenticatedRequest, res: Response) => {
          status, joined_date, login_code, password_hash)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?)`,
       [id, nim, name, email, role, body.avatar || null, body.phone || null,
-        body.kejuruanId, programName,
+        programId, programName,
         body.joinedDate || new Date().toISOString().slice(0, 10), loginCode, passwordHash],
     );
 
     const user = {
       id, nim, name, email, role, avatar: body.avatar || '', phone: body.phone || '',
-      kejuruanId: body.kejuruanId, kejuruanName: programName,
+      kejuruanId: programId || undefined, kejuruanName: programName || undefined,
       status: 'active', joinedDate: body.joinedDate || new Date().toISOString().slice(0, 10),
       loginCode, password, plainPassword: password,
     };
@@ -139,7 +144,6 @@ router.post('/batch', async (req: AuthenticatedRequest, res: Response) => {
   try {
     await connection.beginTransaction();
     const createdUsers: any[] = [];
-    const createdPrograms: string[] = [];
     const seen = new Set<string>();
     for (let index = 0; index < incoming.length; index += 1) {
       const body = incoming[index] || {};
@@ -150,9 +154,9 @@ router.post('/batch', async (req: AuthenticatedRequest, res: Response) => {
       const nim = String(body.nim || body.loginCode || '').trim();
       const loginCode = String(body.loginCode || nim).trim();
       const password = String(body.password || body.plainPassword || '');
-      let kejuruanId = String(body.kejuruanId || '').trim();
+      let kejuruanId = role === 'trainee' ? String(body.kejuruanId || '').trim() : '';
       if (!name || !['mentor', 'trainee'].includes(role) || !/^\d{8}$/.test(nim) || !/^\d{8}$/.test(loginCode) || !/^\d{8}$/.test(password)) {
-        throw new Error(`Data baris ${index + 1} tidak lengkap: nama, role, NIM/kode, sandi 8 digit, dan program wajib valid.`);
+        throw new Error(`Data baris ${index + 1} tidak lengkap: nama, role, NIM/kode, dan sandi 8 digit wajib valid.`);
       }
       if (seen.has(nim) || seen.has(loginCode)) throw new Error(`NIM atau kode login ganda pada baris ${index + 1}.`);
       seen.add(nim); seen.add(loginCode);
@@ -162,8 +166,8 @@ router.post('/batch', async (req: AuthenticatedRequest, res: Response) => {
       }
       // Excel files can contain a program label instead of the database ID.
       // Resolve it against the canonical catalog instead of rejecting the whole import.
-      const programLabel = String(body.kejuruanName || '').trim();
-      if (!programRows.length && programLabel) {
+      const programLabel = role === 'trainee' ? String(body.kejuruanName || '').trim() : '';
+      if (role === 'trainee' && !programRows.length && programLabel) {
         const [catalog] = await connection.query<any[]>('SELECT id,name,code FROM kejuruan');
         const normalizeProgram = (value: unknown) => String(value || '').normalize('NFD')
           .replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -178,41 +182,24 @@ router.post('/batch', async (req: AuthenticatedRequest, res: Response) => {
         programRows = matchedProgram ? [matchedProgram] : [];
         if (programRows.length) kejuruanId = String(programRows[0].id);
       }
-      if (!programRows.length && programLabel) {
-        // A new program name in an import is a valid catalog entry. Create it
-        // inside this transaction so the participant can reference it safely.
-        const programId = randomUUID();
-        const programCode = programLabel.trim().split(/\s+/).filter(Boolean)
-          .map((word: string) => word.replace(/[^\p{L}\p{N}]/gu, '').slice(0, 1))
-          .join('').toLocaleUpperCase('id-ID').slice(0, 16) || 'KJ';
-        await connection.query(
-          `INSERT INTO kejuruan (id,name,code,category,color,description,mentor_id,mentor_name)
-           VALUES (?,?,?,'Umum','#2563eb','',NULL,NULL)`,
-          [programId, programLabel, programCode],
-        );
-        programRows = [{ id: programId, name: programLabel }];
-        kejuruanId = programId;
-        createdPrograms.push(programLabel);
+      if (role === 'trainee' && !programRows.length) {
+        throw new Error(`Program "${programLabel || '(kosong)'}" pada baris ${index + 1} belum tersedia. Admin perlu menambahkannya ke katalog terlebih dahulu.`);
       }
-      if (!programRows.length) throw new Error(`Nama program pada baris ${index + 1} wajib diisi.`);
       const email = String(body.email || `${loginCode}@hadirku.id`).trim();
       const [duplicates] = await connection.query<any[]>('SELECT id FROM users WHERE nim = ? OR login_code = ? OR email = ? LIMIT 1', [nim, loginCode, email]);
       if (duplicates.length) throw new Error(`NIM, kode login, atau email pada baris ${index + 1} sudah digunakan.`);
       const id = randomUUID();
       const passwordHash = await bcrypt.hash(password, 10);
-      const programName = String(body.kejuruanName || programRows[0].name);
+      const programName = role === 'trainee' ? String(programRows[0].name) : null;
       await connection.query(
         `INSERT INTO users (id,nim,name,email,role,avatar,phone,kejuruan_id,kejuruan_name,status,joined_date,login_code,password_hash)
          VALUES (?,?,?,?,?,?,?,?,?,'active',?,?,?)`,
         [id,nim,name,email,role,body.avatar || null,body.phone || null,kejuruanId,programName,body.joinedDate || new Date().toISOString().slice(0,10),loginCode,passwordHash]
       );
-      createdUsers.push({ id,nim,name,email,role,avatar:body.avatar || '',phone:body.phone || '',kejuruanId,kejuruanName:programName,status:'active',joinedDate:body.joinedDate || new Date().toISOString().slice(0,10),loginCode,password,plainPassword:password });
+      createdUsers.push({ id,nim,name,email,role,avatar:body.avatar || '',phone:body.phone || '',kejuruanId: kejuruanId || undefined,kejuruanName:programName || undefined,status:'active',joinedDate:body.joinedDate || new Date().toISOString().slice(0,10),loginCode,password,plainPassword:password });
     }
     await connection.commit();
-    const programMessage = createdPrograms.length
-      ? ` ${[...new Set(createdPrograms)].length} program kejuruan baru juga ditambahkan ke katalog.`
-      : '';
-    return res.status(201).json({ success: true, count: createdUsers.length, createdUsers, message: `${createdUsers.length} akun berhasil diimpor.${programMessage}` });
+    return res.status(201).json({ success: true, count: createdUsers.length, createdUsers, message: `${createdUsers.length} akun berhasil diimpor.` });
   } catch (error: any) {
     await connection.rollback();
     const duplicate = error?.code === 'ER_DUP_ENTRY' || error?.errno === 1062;

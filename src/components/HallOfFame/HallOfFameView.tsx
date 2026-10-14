@@ -262,7 +262,7 @@ export const HallOfFameView: React.FC = () => {
                 <div className="relative mb-3">
                   <div className="w-16 h-16 rounded-full overflow-hidden border-2 border-[#A9C7DE] p-0.5 shadow-md">
                     <img
-                      src={top2.user.avatar}
+                      src={top2.user.avatar || undefined}
                       alt={top2.user.name}
                       className="w-full h-full object-cover rounded-full"
                     />
@@ -293,7 +293,7 @@ export const HallOfFameView: React.FC = () => {
                 <div className="relative mb-3">
                   <div className="w-20 h-20 rounded-full overflow-hidden border-2 border-amber-400 p-0.5 shadow-lg">
                     <img
-                      src={top1.user.avatar}
+                      src={top1.user.avatar || undefined}
                       alt={top1.user.name}
                       className="w-full h-full object-cover rounded-full"
                     />
@@ -323,7 +323,7 @@ export const HallOfFameView: React.FC = () => {
                 <div className="relative mb-3">
                   <div className="w-16 h-16 rounded-full overflow-hidden border-2 border-amber-700 p-0.5 shadow-md">
                     <img
-                      src={top3.user.avatar}
+                      src={top3.user.avatar || undefined}
                       alt={top3.user.name}
                       className="w-full h-full object-cover rounded-full"
                     />
@@ -417,7 +417,7 @@ export const HallOfFameView: React.FC = () => {
                       <td className="py-3 px-4">
                         <div className="flex items-center gap-2.5">
                           <img
-                            src={ranking.user.avatar}
+                            src={ranking.user.avatar || undefined}
                             alt={ranking.user.name}
                             className="w-8 h-8 rounded-full object-cover border border-[#E4EAF0]"
                           />
@@ -511,7 +511,7 @@ export const HallOfFameView: React.FC = () => {
               <div className="flex items-center justify-between p-3.5 rounded-xl bg-[#EAF2F8] border border-[#A9C7DE]/40">
                 <div className="flex items-center gap-3">
                   <img
-                    src={selectedTraineeDetail.user.avatar}
+                    src={selectedTraineeDetail.user.avatar || undefined}
                     alt={selectedTraineeDetail.user.name}
                     className="w-10 h-10 rounded-full object-cover border border-[#E4EAF0]"
                   />

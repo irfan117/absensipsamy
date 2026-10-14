@@ -324,10 +324,25 @@ export const api = {
     });
   },
 
-  async updateMyKejuruan(kejuruanId: string): Promise<{ success: boolean; message: string; kejuruanId?: string; kejuruanName?: string }> {
-    return this.request<{ success: boolean; message: string; kejuruanId?: string; kejuruanName?: string }>('/api/auth/kejuruan', {
-      method: 'PUT',
+  async updateMyKejuruan(kejuruanId: string): Promise<{ success: boolean; message: string }> {
+    return this.request<{ success: boolean; message: string }>('/api/kejuruan/requests', {
+      method: 'POST',
       body: JSON.stringify({ kejuruanId }),
+    });
+  },
+
+  async getKejuruanCatalog(): Promise<{ success: boolean; kejuruanList: Kejuruan[]; pendingRequest?: { kejuruanId: string; kejuruanName: string } }> {
+    return this.request<{ success: boolean; kejuruanList: Kejuruan[]; pendingRequest?: { kejuruanId: string; kejuruanName: string } }>('/api/kejuruan/catalog');
+  },
+
+  async getKejuruanRequests(): Promise<{ success: boolean; requests: Array<{ id: string; mentorId: string; mentorName: string; mentorNim: string; kejuruanId: string; kejuruanName: string; requestedAt: string }> }> {
+    return this.request('/api/kejuruan/requests');
+  },
+
+  async reviewKejuruanRequest(id: string, decision: 'approved' | 'rejected'): Promise<{ success: boolean; message: string }> {
+    return this.request(`/api/kejuruan/requests/${encodeURIComponent(id)}`, {
+      method: 'PUT',
+      body: JSON.stringify({ decision }),
     });
   },
 

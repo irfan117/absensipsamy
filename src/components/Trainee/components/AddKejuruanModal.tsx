@@ -1,12 +1,11 @@
 import React, { useState } from 'react';
-import { Kejuruan, User } from '../../../types';
+import { Kejuruan } from '../../../types';
 import { Modal } from '../../common/Modal';
 import { Plus } from 'lucide-react';
 
 interface AddKejuruanModalProps {
   isOpen: boolean;
   onClose: () => void;
-  mentors: User[];
   kejuruanList: Kejuruan[];
   onSubmit: (kjData: Omit<Kejuruan, 'id'>) => Promise<{ success: boolean; message: string }>;
   onUpdate: (id: string, kjData: Omit<Kejuruan, 'id'>) => Promise<{ success: boolean; message: string }>;
@@ -15,7 +14,6 @@ interface AddKejuruanModalProps {
 export const AddKejuruanModal: React.FC<AddKejuruanModalProps> = ({
   isOpen,
   onClose,
-  mentors,
   kejuruanList,
   onSubmit,
   onUpdate,
@@ -25,7 +23,6 @@ export const AddKejuruanModal: React.FC<AddKejuruanModalProps> = ({
   const [code, setCode] = useState('');
   const [category, setCategory] = useState('');
   const [color, setColor] = useState('#2563eb');
-  const [mentorId, setMentorId] = useState('');
   const [desc, setDesc] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -35,7 +32,6 @@ export const AddKejuruanModal: React.FC<AddKejuruanModalProps> = ({
     setCode('');
     setCategory('');
     setColor('#2563eb');
-    setMentorId('');
     setDesc('');
   };
 
@@ -47,7 +43,6 @@ export const AddKejuruanModal: React.FC<AddKejuruanModalProps> = ({
     setCode(program.code || '');
     setCategory(program.category || '');
     setColor(program.color || '#2563eb');
-    setMentorId(program.mentorId || '');
     setDesc(program.description || '');
   };
 
@@ -62,14 +57,16 @@ export const AddKejuruanModal: React.FC<AddKejuruanModalProps> = ({
 
     setIsSubmitting(true);
     try {
-      const mentor = mentors.find((item) => item.id === mentorId);
+      const existingProgram = kejuruanList.find((item) => item.id === editingId);
       const programData = {
         name: name.trim(),
         code: code.trim() || name.substring(0, 3).toUpperCase(),
         category: category.trim() || 'Teknologi',
         color,
-        mentorId: mentor?.id,
-        mentorName: mentor?.name,
+        // Keep an existing verified assignment when editing metadata. New
+        // mentors receive assignments only through the approval workflow.
+        mentorId: existingProgram?.mentorId,
+        mentorName: existingProgram?.mentorName,
         description: desc.trim(),
       };
       const result = editingId ? await onUpdate(editingId, programData) : await onSubmit(programData);
@@ -155,23 +152,7 @@ export const AddKejuruanModal: React.FC<AddKejuruanModalProps> = ({
           </div>
         </div>
 
-        <div>
-          <label className="block text-xs font-bold text-[#123B59] mb-1">
-            Mentor Program (Opsional)
-          </label>
-          <select
-            value={mentorId}
-            onChange={(e) => setMentorId(e.target.value)}
-            className="w-full text-xs p-3 rounded-xl border border-[#E4EAF0] bg-[#F8FAFB] text-[#123B59] outline-none focus:border-[#4C83B5]"
-          >
-            <option value="">Pilih mentor</option>
-            {mentors.map((mentor) => (
-              <option key={mentor.id} value={mentor.id}>
-                {mentor.name}
-              </option>
-            ))}
-          </select>
-        </div>
+        {!editingId && <p className="rounded-xl bg-sky-50 p-3 text-[11px] leading-relaxed text-sky-800">Kejuruan baru akan tersedia di katalog. Mentor mengajukan pilihan dari profil dan admin memverifikasinya.</p>}
 
         <div>
           <label className="block text-xs font-bold text-[#123B59] mb-1">

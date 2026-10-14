@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useApp } from '../../context/AppContext';
 import { MobileHeaderStatus } from '../MobileHeaderStatus';
 import { api } from '../../services/api';
@@ -15,11 +15,38 @@ export const ProfileView: React.FC = () => {
   const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
   const [selectedKejuruanId, setSelectedKejuruanId] = useState(currentUser.kejuruanId || '');
   const [kejuruanStatus, setKejuruanStatus] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const [mentorKejuruanCatalog, setMentorKejuruanCatalog] = useState<typeof kejuruanList>([]);
+  const [isLoadingKejuruanCatalog, setIsLoadingKejuruanCatalog] = useState(false);
+  const [pendingKejuruanName, setPendingKejuruanName] = useState('');
+
+  useEffect(() => {
+    if (currentUser.role !== 'mentor') return;
+    let active = true;
+    setIsLoadingKejuruanCatalog(true);
+    api.getKejuruanCatalog()
+      .then((result) => {
+        if (active && result.success) {
+          setMentorKejuruanCatalog(result.kejuruanList);
+          if (result.pendingRequest) {
+            setSelectedKejuruanId(result.pendingRequest.kejuruanId);
+            setPendingKejuruanName(result.pendingRequest.kejuruanName);
+          }
+        }
+      })
+      .catch((error: any) => {
+        if (active) setKejuruanStatus({ type: 'error', message: error?.message || 'Katalog kejuruan gagal dimuat.' });
+      })
+      .finally(() => { if (active) setIsLoadingKejuruanCatalog(false); });
+    return () => { active = false; };
+  }, [currentUser.role]);
 
   const handleKejuruanSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
     const result = await updateMyKejuruan(selectedKejuruanId);
     setKejuruanStatus({ type: result.success ? 'success' : 'error', message: result.message });
+    if (result.success) {
+      setPendingKejuruanName(mentorKejuruanCatalog.find((program) => program.id === selectedKejuruanId)?.name || 'Pilihan kejuruan');
+    }
   };
 
   const handleAvatarUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -113,16 +140,20 @@ export const ProfileView: React.FC = () => {
         <form onSubmit={handleKejuruanSubmit} className="surface rounded-2xl p-5 sm:p-6 border border-[#E4EAF0] space-y-3">
           <div>
             <h2 className="text-base font-bold text-[#123B59]">Kejuruan Mentor</h2>
-            <p className="mt-1 text-xs text-[#6F7F8D]">Pilih satu kejuruan yang menjadi tanggung jawab Anda.</p>
+            <p className="mt-1 text-xs text-[#6F7F8D]">Pilih kejuruan dari daftar yang ditambahkan admin. Pilihan baru berlaku setelah diverifikasi admin.</p>
           </div>
           <div className="flex flex-col sm:flex-row gap-3">
-            <select required value={selectedKejuruanId} onChange={(event) => setSelectedKejuruanId(event.target.value)} className="flex-1 p-2.5 rounded-xl border border-[#E4EAF0] bg-[#F8FAFB] text-[#123B59] text-xs font-bold">
-              <option value="" disabled>Pilih kejuruan</option>
-              {kejuruanList.map((program) => <option key={program.id} value={program.id}>{program.name}</option>)}
+            <select required value={selectedKejuruanId} onChange={(event) => setSelectedKejuruanId(event.target.value)} disabled={isLoadingKejuruanCatalog} className="flex-1 p-2.5 rounded-xl border border-[#E4EAF0] bg-[#F8FAFB] text-[#123B59] text-xs font-bold disabled:opacity-60">
+              <option value="">{isLoadingKejuruanCatalog ? 'Memuat katalog...' : 'Pilih kejuruan'}</option>
+              {mentorKejuruanCatalog.map((program) => {
+                const assignedToOtherMentor = Boolean(program.mentorId && program.mentorId !== currentUser.id);
+                return <option key={program.id} value={program.id} disabled={assignedToOtherMentor}>{program.name}{assignedToOtherMentor ? ' (sudah ditugaskan)' : ''}</option>;
+              })}
             </select>
-            <button type="submit" className="rounded-xl bg-[#123B59] hover:bg-[#0D2F47] text-white px-4 py-2.5 text-xs font-bold">Simpan Kejuruan</button>
+            <button type="submit" disabled={isLoadingKejuruanCatalog} className="rounded-xl bg-[#123B59] hover:bg-[#0D2F47] text-white px-4 py-2.5 text-xs font-bold disabled:opacity-60">Ajukan Kejuruan</button>
           </div>
           {kejuruanStatus && <p className={`text-xs font-semibold ${kejuruanStatus.type === 'success' ? 'text-[#1C7C54]' : 'text-[#B84469]'}`}>{kejuruanStatus.message}</p>}
+          {pendingKejuruanName && <p className="rounded-xl bg-amber-50 p-3 text-xs font-semibold text-amber-800">Pengajuan “{pendingKejuruanName}” sedang menunggu verifikasi admin. Kejuruan aktif Anda belum berubah.</p>}
         </form>
       )}
 

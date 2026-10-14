@@ -228,6 +228,22 @@ export async function initDatabase() {
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
     `,
     `
+    CREATE TABLE IF NOT EXISTS mentor_kejuruan_requests (
+      id VARCHAR(64) PRIMARY KEY,
+      mentor_id VARCHAR(64) NOT NULL,
+      kejuruan_id VARCHAR(64) NOT NULL,
+      status ENUM('pending','approved','rejected') NOT NULL DEFAULT 'pending',
+      requested_at DATETIME NOT NULL,
+      reviewed_by VARCHAR(64),
+      reviewed_at DATETIME,
+      review_note TEXT,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      INDEX idx_mentor_kejuruan_requests_status (status, requested_at),
+      INDEX idx_mentor_kejuruan_requests_mentor (mentor_id, requested_at)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `,
+    `
     CREATE TABLE IF NOT EXISTS attendance_records (
       id VARCHAR(64) PRIMARY KEY,
       user_id VARCHAR(64) NOT NULL,

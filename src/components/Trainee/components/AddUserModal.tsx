@@ -45,9 +45,7 @@ export const AddUserModal: React.FC<AddUserModalProps> = ({
     [mentors, kejuruanList]
   );
   const selectedMentor = availableMentors.find((mentor) => mentor.id === mentorId);
-  const selectablePrograms = role === 'trainee' && selectedMentor
-    ? mentorPrograms(selectedMentor)
-    : role === 'trainee' ? [] : kejuruanList;
+  const selectablePrograms = selectedMentor ? mentorPrograms(selectedMentor) : [];
 
   useEffect(() => {
     if (role !== 'trainee' || !availableMentors.length) return;
@@ -85,8 +83,8 @@ export const AddUserModal: React.FC<AddUserModalProps> = ({
     const result = await onSubmit({
       name: name.trim(),
       nim: nim.trim() || '',
-      kejuruanId: kejuruanId || undefined,
-      kejuruanName: selectedProgram?.name,
+      kejuruanId: role === 'trainee' ? kejuruanId || undefined : undefined,
+      kejuruanName: role === 'trainee' ? selectedProgram?.name : undefined,
       role,
       password,
       avatar: '',
@@ -206,15 +204,13 @@ export const AddUserModal: React.FC<AddUserModalProps> = ({
           </div>
         )}
 
-        <div>
-          <label className="block text-xs font-bold text-[#123B59] mb-1">
-            Program Kejuruan
-          </label>
+        {role === 'trainee' && <div>
+          <label className="block text-xs font-bold text-[#123B59] mb-1">Program Kejuruan</label>
           <select
             value={kejuruanId}
             onChange={(e) => setKejuruanId(e.target.value)}
-            required={role === 'trainee'}
-            disabled={role === 'trainee' && !selectedMentor}
+            required
+            disabled={!selectedMentor}
             className="w-full text-xs p-3 rounded-xl border border-[#E4EAF0] bg-[#F8FAFB] text-[#123B59] font-bold outline-none focus:border-[#4C83B5]"
           >
             {selectablePrograms.map((kj) => (
@@ -223,7 +219,8 @@ export const AddUserModal: React.FC<AddUserModalProps> = ({
               </option>
             ))}
           </select>
-        </div>
+        </div>}
+        {role === 'mentor' && <p className="rounded-xl bg-sky-50 p-3 text-[11px] leading-relaxed text-sky-800">Mentor memilih kejuruan dari profil setelah akun dibuat. Pilihan akan aktif setelah diverifikasi admin.</p>}
 
         <div>
           <div className="flex items-center justify-between mb-1">

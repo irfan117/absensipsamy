@@ -41,6 +41,7 @@ Laman Peserta juga digunakan admin untuk mengelola mentor.
 
 - Sediakan filter semua role/peserta/mentor. Baris akun menyediakan identitas, salin kredensial, tampil/sembunyi kata sandi, dan regenerasi kredensial.
 - Admin dapat menambah peserta, menambah program, impor Excel, ekspor roster, menghapus akun non-admin, dan menghapus massal peserta, mentor, atau keduanya.
+- Admin mengelola katalog kejuruan. Mentor memilih kejuruan dari katalog melalui profil; pilihan masuk antrean verifikasi admin dan tidak menjadi penugasan aktif sebelum disetujui. Penolakan mempertahankan penugasan aktif sebelumnya.
 - Tambah akun baru dimasukkan ke roster hanya setelah API mengembalikan sukses.
 - Impor menyediakan template, role target peserta/mentor/otomatis, pratinjau, dan pemetaan role. Validasi backend mencakup nama, kode login/NIM 8 digit, sandi 8 digit, role, program wajib untuk peserta/mentor, identifier duplikat, dan benturan dengan akun admin.
 - Setelah impor sukses, muat roster dan katalog kejuruan dari server. Kegagalan tidak boleh membuat pratinjau tampak sudah tersimpan.
@@ -113,6 +114,7 @@ Laman Peserta juga digunakan admin untuk mengelola mentor.
 - [ ] Dashboard memuat roster lengkap dan menyetujui hanya presensi mentor pending.
 - [ ] Perubahan status/manual attendance mencatat reviewer dan tersimpan.
 - [ ] Impor/ekspor/CRUD akun menjaga aturan kredensial dan akun admin.
+- [ ] Kejuruan baru dari admin tampil di katalog mentor; pengajuan pilihan mentor menunggu verifikasi admin sebelum mengubah cakupan program.
 - [ ] Persetujuan izin membuat record hanya untuk hari kerja; penolakan tidak membuat record.
 - [ ] Misi, review, poin, dan laporan tetap konsisten setelah reload.
 - [ ] Filter rekap dan ekspor identik.

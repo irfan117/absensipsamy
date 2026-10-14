@@ -72,7 +72,7 @@ export const MentorTraineeTable: React.FC<MentorTraineeTableProps> = ({
                   <td className="py-3 px-4">
                     <div className="flex items-center gap-2.5">
                       <img
-                        src={trainee.avatar}
+                        src={trainee.avatar || undefined}
                         alt={trainee.name}
                         className="w-8 h-8 rounded-xl object-cover border border-[#E4EAF0]"
                       />

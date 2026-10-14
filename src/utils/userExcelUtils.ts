@@ -264,7 +264,7 @@ export async function parseUsersFromExcelFile(
               programValue.toLowerCase().startsWith(`${k.code.toLowerCase()} :`)
             )
           : undefined;
-        if (!programValue && finalRole !== 'admin') {
+        if (!programValue && finalRole === 'trainee') {
           return {
             success: false,
             error: `Program Kejuruan pada baris ${r + 1} kosong. Isi nama program sesuai data Excel.`,
