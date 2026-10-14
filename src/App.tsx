@@ -75,13 +75,13 @@ const MainLayout: React.FC = () => {
         return <AdminDashboard />;
 
       case 'presensi':
+        if (currentUser.role === 'admin') return <AdminDashboard />;
         if (currentUser.role === 'mentor') {
           return <MentorDashboard />;
         }
         return <TraineeDashboard />;
 
       case 'misi':
-        if (currentUser.role === 'admin') return <AdminDashboard />;
         return <MissionManagementView />;
 
       case 'laporan-harian':

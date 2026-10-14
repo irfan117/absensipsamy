@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { Kejuruan, Role, User } from '../../../types';
+import React, { useEffect, useMemo, useState } from 'react';
+import { Kejuruan, User } from '../../../types';
 import { Modal } from '../../common/Modal';
 import { generateDefaultPassword } from '../../../utils/userExcelUtils';
 import { UserPlus, Sparkles, KeyRound } from 'lucide-react';
@@ -8,6 +8,7 @@ interface AddUserModalProps {
   isOpen: boolean;
   onClose: () => void;
   kejuruanList: Kejuruan[];
+  mentors: User[];
   onSubmit: (userData: Omit<User, 'id'>) => Promise<{ success: boolean; message: string; user?: User }>;
 }
 
@@ -15,19 +16,52 @@ export const AddUserModal: React.FC<AddUserModalProps> = ({
   isOpen,
   onClose,
   kejuruanList,
+  mentors,
   onSubmit,
 }) => {
   const [name, setName] = useState('');
   const [nim, setNim] = useState('');
   const [kejuruanId, setKejuruanId] = useState(kejuruanList[0]?.id || '');
+  const [mentorId, setMentorId] = useState('');
   const [role, setRole] = useState<'trainee' | 'mentor'>('trainee');
   const [password, setPassword] = useState(generateDefaultPassword());
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const normalizeName = (value: string) => value.trim().toLocaleLowerCase('id-ID');
+  const mentorPrograms = (mentor: User) => kejuruanList.filter(
+    (program) => {
+      const assignedMentorName = normalizeName(program.mentorName || '');
+      const selectedMentorName = normalizeName(mentor.name);
+      return program.mentorId === mentor.id ||
+        program.id === mentor.kejuruanId ||
+        (!!assignedMentorName && (
+          assignedMentorName.includes(selectedMentorName) ||
+          selectedMentorName.includes(assignedMentorName)
+        ));
+    }
+  );
+  const availableMentors = useMemo(
+    () => mentors.filter((mentor) => mentorPrograms(mentor).length > 0),
+    [mentors, kejuruanList]
+  );
+  const selectedMentor = availableMentors.find((mentor) => mentor.id === mentorId);
+  const selectablePrograms = role === 'trainee' && selectedMentor
+    ? mentorPrograms(selectedMentor)
+    : role === 'trainee' ? [] : kejuruanList;
+
+  useEffect(() => {
+    if (role !== 'trainee' || !availableMentors.length) return;
+    const mentor = availableMentors.find((item) => item.id === mentorId) || availableMentors[0];
+    if (mentor.id !== mentorId) setMentorId(mentor.id);
+    const assignedProgram = mentorPrograms(mentor)[0];
+    if (assignedProgram && assignedProgram.id !== kejuruanId) setKejuruanId(assignedProgram.id);
+  }, [role, availableMentors, mentorId, kejuruanId, kejuruanList]);
 
   const resetForm = () => {
     setName('');
     setNim('');
     setKejuruanId(kejuruanList[0]?.id || '');
+    setMentorId('');
     setRole('trainee');
     setPassword(generateDefaultPassword());
   };
@@ -42,7 +76,11 @@ export const AddUserModal: React.FC<AddUserModalProps> = ({
     if (!name.trim()) return;
 
     setIsSubmitting(true);
-    const selectedProgram = kejuruanList.find((k) => k.id === kejuruanId);
+    const selectedProgram = selectablePrograms.find((k) => k.id === kejuruanId);
+    if (role === 'trainee' && (!selectedMentor || !selectedProgram)) {
+      setIsSubmitting(false);
+      return;
+    }
 
     const result = await onSubmit({
       name: name.trim(),
@@ -80,7 +118,14 @@ export const AddUserModal: React.FC<AddUserModalProps> = ({
           <div className="grid grid-cols-2 gap-2">
             <button
               type="button"
-              onClick={() => setRole('trainee')}
+              onClick={() => {
+                setRole('trainee');
+                const mentor = availableMentors[0];
+                if (mentor) {
+                  setMentorId(mentor.id);
+                  setKejuruanId(mentorPrograms(mentor)[0]?.id || '');
+                }
+              }}
               className={`py-2 px-3 rounded-xl border text-xs font-bold transition flex items-center justify-center gap-2 ${
                 role === 'trainee'
                   ? 'border-[#2E7D32] bg-emerald-50 text-[#2E7D32]'
@@ -91,7 +136,10 @@ export const AddUserModal: React.FC<AddUserModalProps> = ({
             </button>
             <button
               type="button"
-              onClick={() => setRole('mentor')}
+              onClick={() => {
+                setRole('mentor');
+                setKejuruanId(kejuruanList[0]?.id || '');
+              }}
               className={`py-2 px-3 rounded-xl border text-xs font-bold transition flex items-center justify-center gap-2 ${
                 role === 'mentor'
                   ? 'border-[#123B59] bg-sky-50 text-[#123B59]'
@@ -130,6 +178,34 @@ export const AddUserModal: React.FC<AddUserModalProps> = ({
           />
         </div>
 
+        {role === 'trainee' && (
+          <div>
+            <label className="block text-xs font-bold text-[#123B59] mb-1">
+              Mentor Pembimbing <span className="text-rose-500">*</span>
+            </label>
+            <select
+              required
+              value={mentorId}
+              onChange={(e) => {
+                const mentor = availableMentors.find((item) => item.id === e.target.value);
+                setMentorId(e.target.value);
+                setKejuruanId(mentor ? mentorPrograms(mentor)[0]?.id || '' : '');
+              }}
+              className="w-full text-xs p-3 rounded-xl border border-[#E4EAF0] bg-[#F8FAFB] text-[#123B59] font-bold outline-none focus:border-[#4C83B5]"
+            >
+              <option value="">Pilih mentor</option>
+              {availableMentors.map((mentor) => (
+                <option key={mentor.id} value={mentor.id}>{mentor.name}</option>
+              ))}
+            </select>
+            {!availableMentors.length && (
+              <p className="mt-1 text-[11px] text-rose-600">
+                Belum ada mentor dengan program kejuruan yang ditugaskan.
+              </p>
+            )}
+          </div>
+        )}
+
         <div>
           <label className="block text-xs font-bold text-[#123B59] mb-1">
             Program Kejuruan
@@ -137,9 +213,11 @@ export const AddUserModal: React.FC<AddUserModalProps> = ({
           <select
             value={kejuruanId}
             onChange={(e) => setKejuruanId(e.target.value)}
+            required={role === 'trainee'}
+            disabled={role === 'trainee' && !selectedMentor}
             className="w-full text-xs p-3 rounded-xl border border-[#E4EAF0] bg-[#F8FAFB] text-[#123B59] font-bold outline-none focus:border-[#4C83B5]"
           >
-            {kejuruanList.map((kj) => (
+            {selectablePrograms.map((kj) => (
               <option key={kj.id} value={kj.id}>
                 {kj.name}
               </option>
@@ -182,7 +260,7 @@ export const AddUserModal: React.FC<AddUserModalProps> = ({
           </button>
           <button
             type="submit"
-            disabled={isSubmitting}
+            disabled={isSubmitting || (role === 'trainee' && !selectedMentor)}
             className="px-5 py-2.5 rounded-xl bg-[#2E7D32] hover:bg-[#256628] text-white text-xs font-bold transition flex items-center gap-1.5 disabled:opacity-50"
           >
             <UserPlus className="w-4 h-4" />

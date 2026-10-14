@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { User, AttendanceRecord, AttendanceStatus, VerificationStatus } from '../../../types';
 import { Check, Clock, AlertTriangle } from 'lucide-react';
 
@@ -7,9 +7,10 @@ interface MentorAttendanceTableProps {
     mentor: User;
     record?: AttendanceRecord;
   }[];
-  onVerify: (recordId: string, status: 'verified' | 'rejected') => void;
-  onMarkStatus: (recordId: string, status: AttendanceStatus, verificationStatus?: VerificationStatus) => void;
-  onManualAdd: (userId: string, date: string, status: AttendanceStatus, checkInTime?: string) => void;
+  onVerify: (recordId: string, status: 'verified' | 'rejected') => Promise<{ success: boolean; message: string }>;
+  onMarkStatus: (recordId: string, status: AttendanceStatus, verificationStatus?: VerificationStatus) => Promise<{ success: boolean; message: string }>;
+  onManualAdd: (userId: string, date: string, status: AttendanceStatus, checkInTime?: string) => Promise<{ success: boolean; message: string }>;
+  onActionResult: (message: string, success: boolean) => void;
   todayDate: string;
 }
 
@@ -18,8 +19,10 @@ export const MentorAttendanceTable: React.FC<MentorAttendanceTableProps> = ({
   onVerify,
   onMarkStatus,
   onManualAdd,
+  onActionResult,
   todayDate,
 }) => {
+  const [busyMentorId, setBusyMentorId] = useState<string | null>(null);
   return (
     <div className="surface rounded-2xl border border-[#E4EAF0] overflow-hidden shadow-xs">
       <div className="overflow-x-auto">
@@ -48,6 +51,18 @@ export const MentorAttendanceTable: React.FC<MentorAttendanceTableProps> = ({
                 const isPending = record?.verificationStatus === 'pending';
                 const isVerified = record?.verificationStatus === 'verified';
                 const isRejected = record?.verificationStatus === 'rejected';
+                const applyStatus = async (status: AttendanceStatus) => {
+                  if (busyMentorId) return;
+                  setBusyMentorId(mentor.id);
+                  const now = new Date();
+                  const currentTime = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`;
+                  try {
+                    const result = record
+                      ? await onMarkStatus(record.id, status, 'verified')
+                      : await onManualAdd(mentor.id, todayDate, status, ['hadir', 'terlambat'].includes(status) ? currentTime : undefined);
+                    onActionResult(result.message, result.success);
+                  } finally { setBusyMentorId(null); }
+                };
 
                 return (
                   <tr key={mentor.id} className="hover:bg-[#F8FAFB] transition-colors">
@@ -95,12 +110,33 @@ export const MentorAttendanceTable: React.FC<MentorAttendanceTableProps> = ({
                       )}
                     </td>
                     <td className="py-3 px-3 text-right">
+                      <select
+                        aria-label={`Ubah status presensi ${mentor.name}`}
+                        disabled={busyMentorId === mentor.id}
+                        value={record?.status || ''}
+                        onChange={event => { if (event.target.value) void applyStatus(event.target.value as AttendanceStatus); }}
+                        className="mb-2 w-full rounded-lg border border-[#E4EAF0] bg-white px-2 py-1.5 text-[10px] font-semibold text-[#123B59]"
+                      >
+                        <option value="">Atur status...</option>
+                        <option value="hadir">Hadir</option>
+                        <option value="terlambat">Terlambat</option>
+                        <option value="izin">Izin</option>
+                        <option value="sakit">Sakit</option>
+                        <option value="alpha">Alpha</option>
+                      </select>
                       {hasCheckedIn && record ? (
                         <div className="flex items-center justify-end gap-1.5">
                           {!isVerified && (
                             <button
                               type="button"
-                              onClick={() => onVerify(record.id, 'verified')}
+                              disabled={busyMentorId === mentor.id}
+                              onClick={async () => {
+                                setBusyMentorId(mentor.id);
+                                try {
+                                  const result = await onVerify(record.id, 'verified');
+                                  onActionResult(result.message, result.success);
+                                } finally { setBusyMentorId(null); }
+                              }}
                               className="px-2.5 py-1 rounded-lg bg-[#2E7D32] hover:bg-[#256628] text-white text-[11px] font-bold transition flex items-center gap-1 shadow-2xs"
                             >
                               <Check className="w-3 h-3" /> Setujui
@@ -109,7 +145,14 @@ export const MentorAttendanceTable: React.FC<MentorAttendanceTableProps> = ({
                           {!isRejected && (
                             <button
                               type="button"
-                              onClick={() => onVerify(record.id, 'rejected')}
+                              disabled={busyMentorId === mentor.id}
+                              onClick={async () => {
+                                setBusyMentorId(mentor.id);
+                                try {
+                                  const result = await onVerify(record.id, 'rejected');
+                                  onActionResult(result.message, result.success);
+                                } finally { setBusyMentorId(null); }
+                              }}
                               className="px-2.5 py-1 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-[11px] font-bold transition"
                             >
                               Tolak
@@ -119,9 +162,7 @@ export const MentorAttendanceTable: React.FC<MentorAttendanceTableProps> = ({
                       ) : (
                         <button
                           type="button"
-                          onClick={() =>
-                            onManualAdd(mentor.id, todayDate, 'hadir', '08:00')
-                          }
+                          onClick={() => void applyStatus('hadir')}
                           className="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-[11px] font-bold transition"
                         >
                           + Tandai Hadir

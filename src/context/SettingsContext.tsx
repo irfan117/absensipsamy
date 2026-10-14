@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useEffect } from 'react';
 import { AttendanceSettings } from '../types';
 import { api } from '../services/api';
 import { useAuth } from './AuthContext';
+import { INITIAL_SETTINGS } from '../data/mockData';
 
 interface SettingsContextType {
   settings: AttendanceSettings;
@@ -15,13 +16,7 @@ const SettingsContext = createContext<SettingsContextType | undefined>(undefined
 
 export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { jwtToken } = useAuth();
-  const [settings, setSettings] = useState<AttendanceSettings>({
-    lateLimitTime: '09:00',
-    latePointPenaltyPerMinute: 1,
-    absentPointPenaltyPerDay: 2,
-    enableGPSVerification: true,
-    enablePhotoVerification: true,
-  });
+  const [settings, setSettings] = useState<AttendanceSettings>(INITIAL_SETTINGS);
   const [tidbStatus, setTidbStatus] = useState<'connected' | 'connecting' | 'error' | 'offline'>('connected');
 
   const refreshSettings = async () => {
@@ -44,7 +39,7 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   }, [jwtToken]);
 
   const updateSettings = async (newSettings: Partial<AttendanceSettings>) => {
-    if (!jwtToken) return { success: false, message: 'User tidak terautentikasi.' };
+    if (!jwtToken) return { success: false, count: 0, message: 'User tidak terautentikasi.' };
     try {
       const res = await api.updateSettings(newSettings);
       if (res.success) {
@@ -57,21 +52,13 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   };
 
   const resetToDefaultData = async () => {
-    if (!jwtToken) return { success: false, message: 'User tidak terautentikasi.' };
+    if (!jwtToken) return { success: false, count: 0, message: 'User tidak terautentikasi.' };
     try {
       const res = await api.resetToDefaultData();
-      if (res.success) {
-        setSettings({
-          lateLimitTime: '09:00',
-          latePointPenaltyPerMinute: 1,
-          absentPointPenaltyPerDay: 2,
-          enableGPSVerification: true,
-          enablePhotoVerification: true,
-        });
-      }
+      if (res.success) await refreshSettings();
       return res;
     } catch (err) {
-      return { success: false, message: 'Gagal mereset pengaturan.' };
+      return { success: false, count: 0, message: 'Gagal mereset pengaturan.' };
     }
   };
 

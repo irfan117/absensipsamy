@@ -1,34 +1,54 @@
 import React, { useState } from 'react';
-import { Kejuruan } from '../../../types';
+import { Kejuruan, User } from '../../../types';
 import { Modal } from '../../common/Modal';
 import { Plus } from 'lucide-react';
 
 interface AddKejuruanModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSubmit: (kjData: Omit<Kejuruan, 'id'>) => void | Promise<void>;
+  mentors: User[];
+  kejuruanList: Kejuruan[];
+  onSubmit: (kjData: Omit<Kejuruan, 'id'>) => Promise<{ success: boolean; message: string }>;
+  onUpdate: (id: string, kjData: Omit<Kejuruan, 'id'>) => Promise<{ success: boolean; message: string }>;
 }
 
 export const AddKejuruanModal: React.FC<AddKejuruanModalProps> = ({
   isOpen,
   onClose,
+  mentors,
+  kejuruanList,
   onSubmit,
+  onUpdate,
 }) => {
+  const [editingId, setEditingId] = useState('');
   const [name, setName] = useState('');
   const [code, setCode] = useState('');
   const [category, setCategory] = useState('');
   const [color, setColor] = useState('#2563eb');
-  const [mentorName, setMentorName] = useState('');
+  const [mentorId, setMentorId] = useState('');
   const [desc, setDesc] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const resetForm = () => {
+    setEditingId('');
     setName('');
     setCode('');
     setCategory('');
     setColor('#2563eb');
-    setMentorName('');
+    setMentorId('');
     setDesc('');
+  };
+
+  const selectProgramToEdit = (id: string) => {
+    setEditingId(id);
+    const program = kejuruanList.find(item => item.id === id);
+    if (!program) return;
+    setName(program.name);
+    setCode(program.code || '');
+    setCategory(program.category || '');
+    setColor(program.color || '#2563eb');
+    setMentorId(program.mentorId || '');
+    setDesc(program.description || '');
   };
 
   const handleClose = () => {
@@ -41,27 +61,44 @@ export const AddKejuruanModal: React.FC<AddKejuruanModalProps> = ({
     if (!name.trim()) return;
 
     setIsSubmitting(true);
-    await onSubmit({
-      name: name.trim(),
-      code: code.trim() || name.substring(0, 3).toUpperCase(),
-      category: category.trim() || 'Teknologi',
-      color,
-      mentorName: mentorName.trim(),
-      description: desc.trim(),
-    });
-    setIsSubmitting(false);
-    handleClose();
+    try {
+      const mentor = mentors.find((item) => item.id === mentorId);
+      const programData = {
+        name: name.trim(),
+        code: code.trim() || name.substring(0, 3).toUpperCase(),
+        category: category.trim() || 'Teknologi',
+        color,
+        mentorId: mentor?.id,
+        mentorName: mentor?.name,
+        description: desc.trim(),
+      };
+      const result = editingId ? await onUpdate(editingId, programData) : await onSubmit(programData);
+      if (result.success) handleClose();
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
     <Modal
       isOpen={isOpen}
       onClose={handleClose}
-      title="Tambah Program Kejuruan Baru"
-      description="Tambahkan bidang keahlian baru ke dalam master data aplikasi."
+      title={editingId ? 'Ubah Program Kejuruan' : 'Tambah Program Kejuruan Baru'}
+      description="Tambah program atau ubah rincian program yang ada. ID program tetap dipertahankan agar referensi akun dan presensi tidak terputus."
       maxWidth="md"
     >
       <form onSubmit={handleSubmit} className="space-y-4">
+        <div>
+          <label className="block text-xs font-bold text-[#123B59] mb-1">Ubah program yang sudah ada (opsional)</label>
+          <select
+            value={editingId}
+            onChange={event => event.target.value ? selectProgramToEdit(event.target.value) : resetForm()}
+            className="w-full text-xs p-3 rounded-xl border border-[#E4EAF0] bg-[#F8FAFB] text-[#123B59] outline-none focus:border-[#4C83B5]"
+          >
+            <option value="">Tambah program baru</option>
+            {kejuruanList.map(program => <option key={program.id} value={program.id}>{program.name} ({program.code})</option>)}
+          </select>
+        </div>
         <div>
           <label className="block text-xs font-bold text-[#123B59] mb-1">
             Nama Program Kejuruan <span className="text-rose-500">*</span>
@@ -120,15 +157,20 @@ export const AddKejuruanModal: React.FC<AddKejuruanModalProps> = ({
 
         <div>
           <label className="block text-xs font-bold text-[#123B59] mb-1">
-            Nama Instruktur Mentor Default (Opsional)
+            Mentor Program (Opsional)
           </label>
-          <input
-            type="text"
-            value={mentorName}
-            onChange={(e) => setMentorName(e.target.value)}
-            placeholder="Contoh: Budi Santoso, S.Kom"
+          <select
+            value={mentorId}
+            onChange={(e) => setMentorId(e.target.value)}
             className="w-full text-xs p-3 rounded-xl border border-[#E4EAF0] bg-[#F8FAFB] text-[#123B59] outline-none focus:border-[#4C83B5]"
-          />
+          >
+            <option value="">Pilih mentor</option>
+            {mentors.map((mentor) => (
+              <option key={mentor.id} value={mentor.id}>
+                {mentor.name}
+              </option>
+            ))}
+          </select>
         </div>
 
         <div>
@@ -158,7 +200,7 @@ export const AddKejuruanModal: React.FC<AddKejuruanModalProps> = ({
             className="px-5 py-2.5 rounded-xl bg-[#123B59] hover:bg-[#0E2E46] text-white text-xs font-bold transition flex items-center gap-1.5 disabled:opacity-50"
           >
             <Plus className="w-4 h-4" />
-            <span>{isSubmitting ? 'Menyimpan...' : 'Tambah Kejuruan'}</span>
+            <span>{isSubmitting ? 'Menyimpan...' : editingId ? 'Simpan Perubahan' : 'Tambah Kejuruan'}</span>
           </button>
         </div>
       </form>

@@ -131,6 +131,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       return [
         { id: 'verifikasi-mentor', label: 'Verifikasi Mentor', icon: CheckCircle2, badge: pendingMentorVerifications },
         { id: 'laporan-harian', label: 'Laporan Harian', icon: BookOpen, badge: pendingDailyReportsCount },
+        { id: 'misi', label: 'Misi & Pengumpulan', icon: Target, badge: pendingMissionsCount },
         { id: 'hall-of-fame', label: 'Hall of Fame Mentor', icon: Trophy },
         { id: 'rekap', label: 'Rekapitulasi Presensi', icon: FileSpreadsheet },
         { id: 'peserta', label: 'Peserta & Kejuruan', icon: Users },
@@ -161,7 +162,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     }
   };
 
-  const handleNavClick = (tabId: string) => {
+  const handleNavClick = (tabId: typeof activeTab) => {
     setActiveTab(tabId);
     onCloseMobile();
   };
@@ -289,7 +290,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <button
               key={item.id}
               type="button"
-              onClick={() => handleNavClick(item.id)}
+              onClick={() => handleNavClick(item.id as typeof activeTab)}
               className={`side-nav-item w-full flex items-center justify-between px-3.5 py-3 rounded-xl text-left text-sm font-semibold transition cursor-pointer ${
                 isActive ? 'is-active' : ''
               }`}

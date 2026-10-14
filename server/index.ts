@@ -14,6 +14,7 @@ import authRoutes from './routes/auth.js';
 import usersRoutes from './routes/users.js';
 import { authenticateToken } from './auth.js';
 import { appDataRouter } from './appData.js';
+import { createDirectUploadSignature, isCloudinaryConfigured } from './cloudinary.js';
 
 dotenv.config();
 
@@ -42,8 +43,8 @@ app.use(express.json({ limit: '10mb' }));
 app.use((req: any, res: any, next: any) => {
   const cookieToken = req.headers.cookie
     ?.split(';')
-    .map(part => part.trim())
-    .find(part => part.startsWith('hadirku_auth='))
+    .map((part: string) => part.trim())
+    .find((part: string) => part.startsWith('hadirku_auth='))
     ?.slice('hadirku_auth='.length);
   if (cookieToken) {
     req.headers.authorization = `Bearer ${cookieToken}`;
@@ -62,6 +63,21 @@ app.use('/api/daily-reports', authenticateToken, dailyReportsRoutes);
 app.use('/api/settings', authenticateToken, settingsRoutes);
 app.use('/api/hall-of-fame', authenticateToken, hallOfFameRoutes);
 app.use('/api/app-data', appDataRouter);
+
+app.post('/api/upload/signature', authenticateToken, (req: any, res: Response) => {
+  const folder = String(req.body?.folder || '');
+  if (!folder.startsWith('hadirku/') || folder.length > 120 || folder.includes('..')) {
+    return res.status(400).json({ success: false, message: 'Folder upload tidak valid.' });
+  }
+  if (!isCloudinaryConfigured) {
+    return res.status(503).json({ success: false, message: 'Layanan upload gambar belum dikonfigurasi.' });
+  }
+  try {
+    return res.json({ success: true, ...createDirectUploadSignature(folder) });
+  } catch (error: any) {
+    return res.status(503).json({ success: false, message: error?.message || 'Gagal menyiapkan upload.' });
+  }
+});
 
 // Health check
 app.get('/api/health', (_req: any, res: Response) => {

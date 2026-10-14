@@ -184,7 +184,7 @@ export const api = {
     });
   },
 
-  async submitDailyReport(report: DailyReport): Promise<{ success: boolean; message: string; report: DailyReport }> {
+  async submitDailyReport(report: Pick<DailyReport, 'date' | 'description'> & Partial<Pick<DailyReport, 'photoUrl' | 'photoName' | 'submissionLink'>>): Promise<{ success: boolean; message: string; report: DailyReport }> {
     return this.request('/api/app-data/daily-reports', {
       method: 'POST',
       body: JSON.stringify(report),
@@ -196,6 +196,43 @@ export const api = {
       method: 'PUT',
       body: JSON.stringify(settings),
     });
+  },
+
+  async updateSettings(settings: Partial<AttendanceSettings>): Promise<{ success: boolean; message: string }> {
+    const current = await this.getSettings();
+    if (!current.settings) return { success: false, message: 'Pengaturan TiDB belum tersedia.' };
+    return this.saveAttendanceSettings({ ...current.settings, ...settings });
+  },
+
+  async resetToDefaultData(): Promise<{ success: boolean; count: number; message: string }> {
+    const snapshot = await this.getAppData();
+    return { success: snapshot.success, count: snapshot.success ? 1 : 0, message: snapshot.success ? 'Data berhasil dimuat ulang dari TiDB.' : 'Gagal memuat data TiDB.' };
+  },
+
+  async getAttendanceRecords(date?: string): Promise<{ success: boolean; records: AttendanceRecord[]; settings?: AttendanceSettings }> {
+    const endpoint = date ? `/api/attendance?date=${encodeURIComponent(date)}` : '/api/attendance';
+    const response = await this.request<{ success: boolean; attendanceRecords?: AttendanceRecord[]; records?: AttendanceRecord[]; settings?: AttendanceSettings }>(endpoint);
+    return { success: response.success, records: response.records || response.attendanceRecords || [], settings: response.settings };
+  },
+
+  async clockIn(input: { notes?: string; photoUrl?: string; coordinates?: { lat: number; lng: number }; workMode: 'WFO' | 'WFH' }): Promise<{ success: boolean; message: string; attendanceRecord?: AttendanceRecord }> {
+    return this.request('/api/attendance/clock-in', { method: 'POST', body: JSON.stringify(input) });
+  },
+
+  async clockOut(input: { notes?: string; coordinates?: { lat: number; lng: number } }): Promise<{ success: boolean; message: string; attendanceRecord?: AttendanceRecord }> {
+    return this.request('/api/attendance/clock-out', { method: 'POST', body: JSON.stringify(input) });
+  },
+
+  async verifyAttendance(id: string, status: 'verified' | 'rejected', reason?: string): Promise<{ success: boolean; message: string; attendanceRecord?: AttendanceRecord }> {
+    return this.request(`/api/attendance/${encodeURIComponent(id)}/verify`, { method: 'PATCH', body: JSON.stringify({ status, reason }) });
+  },
+
+  async approvePendingMentorAttendance(): Promise<{ success: boolean; count: number; message: string }> {
+    return this.request('/api/attendance/approve-pending-mentors', { method: 'PATCH' });
+  },
+
+  async updateAttendanceRecord(record: AttendanceRecord): Promise<{ success: boolean; message: string; attendanceRecord: AttendanceRecord }> {
+    return this.saveAttendanceRecord(record);
   },
 
   async saveAttendanceRecord(record: AttendanceRecord): Promise<{ success: boolean; message: string; duplicate?: boolean; attendanceRecord: AttendanceRecord }> {
@@ -222,6 +259,40 @@ export const api = {
     return this.request<{ success: boolean; users: User[] }>('/api/users');
   },
 
+  async importUsers(users: Partial<User>[]): Promise<{ success: boolean; count: number; message: string; createdUsers?: User[] }> {
+    return this.batchImportUsers(users);
+  },
+
+  async deleteUsersByRole(role: 'trainee' | 'mentor' | 'all'): Promise<{ success: boolean; count: number; message: string }> {
+    return this.clearUsersByRole(role);
+  },
+
+  async regenerateUserCredentials(id: string): Promise<{ success: boolean; loginCode: string; password: string; message: string }> {
+    return this.request(`/api/users/${encodeURIComponent(id)}/regenerate-credentials`, { method: 'POST' });
+  },
+
+  async getKejuruan(): Promise<{ success: boolean; kejuruanList: Kejuruan[] }> {
+    return this.request<{ success: boolean; kejuruanList: Kejuruan[] }>('/api/kejuruan');
+  },
+
+  async getSettings(): Promise<{ success: boolean; settings: AttendanceSettings }> {
+    return this.request<{ success: boolean; settings: AttendanceSettings }>('/api/settings');
+  },
+
+  async createKejuruan(data: Omit<Kejuruan, 'id'>): Promise<{ success: boolean; message?: string }> {
+    return this.request<{ success: boolean; message?: string }>('/api/kejuruan', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async updateKejuruan(id: string, data: Omit<Kejuruan, 'id'>): Promise<{ success: boolean; message?: string }> {
+    return this.request<{ success: boolean; message?: string }>(`/api/kejuruan/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    });
+  },
+
   // Create user (Mentor or Trainee by Admin)
   async createUser(userData: Omit<User, 'id'>): Promise<{ success: boolean; message: string; user: User }> {
     return this.request<{ success: boolean; message: string; user: User }>('/api/users', {
@@ -239,8 +310,8 @@ export const api = {
   },
 
   // Update user
-  async updateUser(id: string, updates: Partial<User>): Promise<{ success: boolean; message: string }> {
-    return this.request<{ success: boolean; message: string }>(`/api/users/${id}`, {
+  async updateUser(id: string, updates: Partial<User>): Promise<{ success: boolean; message: string; user?: User }> {
+    return this.request<{ success: boolean; message: string; user?: User }>(`/api/users/${encodeURIComponent(id)}`, {
       method: 'PUT',
       body: JSON.stringify(updates),
     });
@@ -320,8 +391,12 @@ export const api = {
     });
   },
 
-  async getLeaveRequests(): Promise<{ success: boolean; requests: LeaveRequest[] }> {
-    return this.request<{ success: boolean; requests: LeaveRequest[] }>('/api/leaves');
+  async getLeaveRequests(): Promise<{ success: boolean; requests: LeaveRequest[]; leaveRequests?: LeaveRequest[] }> {
+    return this.request<{ success: boolean; requests: LeaveRequest[]; leaveRequests?: LeaveRequest[] }>('/api/leaves');
+  },
+
+  async getDailyReports(): Promise<{ success: boolean; dailyReports: DailyReport[] }> {
+    return this.request<{ success: boolean; dailyReports: DailyReport[] }>('/api/daily-reports');
   },
 
   async createLeaveRequest(data: {
@@ -334,6 +409,12 @@ export const api = {
     return this.request<{ success: boolean; request: LeaveRequest; message: string }>('/api/leaves', { method: 'POST', body: JSON.stringify(data) });
   },
 
+  async submitLeaveRequest(data: {
+    type: 'izin' | 'sakit'; startDate: string; endDate: string; reason: string; attachmentUrl: string;
+  }): Promise<{ success: boolean; request: LeaveRequest; message: string }> {
+    return this.createLeaveRequest(data);
+  },
+
   async reviewLeaveRequest(id: string, status: 'approved' | 'rejected', reviewNotes?: string): Promise<{ success: boolean; request: LeaveRequest; message: string }> {
     return this.request<{ success: boolean; request: LeaveRequest; message: string }>(`/api/leaves/${encodeURIComponent(id)}/review`, {
       method: 'PATCH',
@@ -341,11 +422,11 @@ export const api = {
     });
   },
 
-  async getMissions(): Promise<{ success: boolean; missions: Mission[] }> {
-    return this.request<{ success: boolean; missions: Mission[] }>('/api/missions');
+  async getMissions(): Promise<{ success: boolean; missions: Mission[]; submissions: MissionSubmission[] }> {
+    return this.request<{ success: boolean; missions: Mission[]; submissions: MissionSubmission[] }>('/api/missions');
   },
 
-  async createMission(mission: Mission): Promise<{ success: boolean; mission: Mission }> {
+  async createMission(mission: Omit<Mission, 'id' | 'createdAt'>): Promise<{ success: boolean; mission: Mission }> {
     return this.request<{ success: boolean; mission: Mission }>('/api/missions', {
       method: 'POST',
       body: JSON.stringify(mission),
@@ -353,10 +434,14 @@ export const api = {
   },
 
   async updateMission(id: string, updates: Partial<Mission>): Promise<{ success: boolean; message: string }> {
-    return this.request<{ success: boolean; message: string }>(`/api/missions/${encodeURIComponent(id)}`, {
-      method: 'PUT',
+    return this.request<{ success: boolean; mission?: Mission; message: string }>(`/api/missions/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
       body: JSON.stringify(updates),
     });
+  },
+
+  async submitMissionWork(input: { missionId: string; submissionLink?: string; notes: string }): Promise<{ success: boolean; submission: MissionSubmission; message?: string }> {
+    return this.request(`/api/missions/${encodeURIComponent(input.missionId)}/submit`, { method: 'POST', body: JSON.stringify(input) });
   },
 
   async deleteMission(id: string): Promise<{ success: boolean; message: string }> {
@@ -368,7 +453,7 @@ export const api = {
   async reviewMissionSubmission(id: string, review: {
     status: 'approved' | 'rejected';
     feedback: string;
-    points: number;
+    awardedPoints?: number;
   }): Promise<{ success: boolean; message: string; submission: MissionSubmission }> {
     return this.request<{ success: boolean; message: string; submission: MissionSubmission }>(`/api/missions/submissions/${encodeURIComponent(id)}/review`, {
       method: 'PATCH',

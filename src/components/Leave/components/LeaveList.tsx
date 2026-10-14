@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { User, LeaveRequest } from '../../../types';
 import { formatIndonesianDate } from '../../../utils/dateUtils';
 import { Paperclip } from 'lucide-react';
@@ -7,7 +7,7 @@ interface LeaveListProps {
   visibleRequests: LeaveRequest[];
   isTrainee: boolean;
   currentUser: User;
-  onReview: (id: string, status: 'approved' | 'rejected', notes?: string) => void;
+  onReview: (id: string, status: 'approved' | 'rejected', notes?: string) => Promise<void>;
 }
 
 export const LeaveList: React.FC<LeaveListProps> = ({
@@ -16,6 +16,13 @@ export const LeaveList: React.FC<LeaveListProps> = ({
   currentUser,
   onReview,
 }) => {
+  const [notesByRequest, setNotesByRequest] = useState<Record<string, string>>({});
+  const [busyRequest, setBusyRequest] = useState<string | null>(null);
+  const submitReview = async (id: string, status: 'approved' | 'rejected') => {
+    setBusyRequest(id);
+    try { await onReview(id, status, notesByRequest[id]); }
+    finally { setBusyRequest(null); }
+  };
   return (
     <div>
       <div className="flex items-center justify-between pb-3">
@@ -85,26 +92,30 @@ export const LeaveList: React.FC<LeaveListProps> = ({
                   </span>
                 </div>
 
-                {/* Review actions for mentor/admin */}
-                {currentUser.role !== 'trainee' && isPending && (
+                {/* Review actions for mentors only; admins have read access. */}
+                {currentUser.role === 'mentor' && isPending && (
                   <div className="mt-3 pt-3 border-t border-[#E4EAF0] flex flex-col sm:flex-row items-stretch sm:items-center justify-end gap-2">
                     <input
                       type="text"
                       placeholder="Catatan verifikasi (opsional)..."
+                      value={notesByRequest[leave.id] || ''}
+                      onChange={(event) => setNotesByRequest(previous => ({ ...previous, [leave.id]: event.target.value }))}
                       className="text-xs px-3 py-2 rounded-xl border border-[#E4EAF0] bg-[#F8FAFB] text-[#123B59] flex-1 outline-none focus:border-[#4C83B5]"
                     />
                     <div className="flex items-center gap-2">
                       <button
                         type="button"
-                        onClick={() => onReview(leave.id, 'approved')}
-                        className="rounded-xl px-4 py-2 bg-[#123B59] hover:bg-[#0D2F47] text-white text-xs font-bold transition cursor-pointer"
+                        disabled={busyRequest === leave.id}
+                        onClick={() => void submitReview(leave.id, 'approved')}
+                        className="rounded-xl px-4 py-2 bg-[#123B59] hover:bg-[#0D2F47] text-white text-xs font-bold transition cursor-pointer disabled:opacity-60"
                       >
                         Setujui
                       </button>
                       <button
                         type="button"
-                        onClick={() => onReview(leave.id, 'rejected')}
-                        className="rounded-xl border border-[#E3C4D0] bg-[#FCF3F6] hover:bg-[#f9e7ee] text-[#B84469] px-4 py-2 text-xs font-bold transition cursor-pointer"
+                        disabled={busyRequest === leave.id}
+                        onClick={() => void submitReview(leave.id, 'rejected')}
+                        className="rounded-xl border border-[#E3C4D0] bg-[#FCF3F6] hover:bg-[#f9e7ee] text-[#B84469] px-4 py-2 text-xs font-bold transition cursor-pointer disabled:opacity-60"
                       >
                         Tolak
                       </button>

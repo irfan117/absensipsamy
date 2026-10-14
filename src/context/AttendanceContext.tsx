@@ -98,12 +98,20 @@ export const AttendanceProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const getLatePenaltyPoints = (userId: string) => {
     return attendanceRecords
       .filter((r) => r.userId === userId)
-      .reduce((sum, r) => sum + computeLatePenalty(r, settings), 0);
+      .reduce((sum, r) => sum + computeLatePenalty(settings, r).latePenaltyPoints, 0);
   };
 
   const getAbsentPenaltyPoints = (userId: string) => {
     const today = getTodayDateString();
-    return computeAbsentPenalty(userId, attendanceRecords, [], today, settings);
+    const userDates = attendanceRecords
+      .filter(record => record.userId === userId && (record.checkInTime || ['izin', 'sakit'].includes(record.status)))
+      .map(record => record.date);
+    return computeAbsentPenalty({
+      workDays: settings.workDays,
+      absentPointPenaltyPerDay: settings.absentPointPenaltyPerDay,
+      today,
+      attendedOrLeaveDates: userDates,
+    }).absentPenaltyPoints;
   };
 
   const verifyAttendance = (recordId: string, status: 'verified' | 'rejected', reason?: string) => {
@@ -156,6 +164,7 @@ export const AttendanceProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         id: `att-man-${Date.now()}`,
         userId,
         userName: 'Manual User',
+        userNim: '',
         userRole: 'trainee',
         kejuruanId: '',
         kejuruanName: '',

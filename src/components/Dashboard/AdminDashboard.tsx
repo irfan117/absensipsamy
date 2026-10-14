@@ -17,10 +17,13 @@ import { MentorAttendanceTable } from './components/MentorAttendanceTable';
 export const AdminDashboard: React.FC = () => {
   const {
     users,
+    refreshUsers,
     kejuruanList,
     attendanceRecords,
     refreshAttendanceRecords,
+    refreshAttendanceRecordsForDate,
     verifyAttendance,
+    approvePendingMentorAttendance,
     markAttendanceStatus,
     manualAddOrUpdateAttendance,
   } = useApp();
@@ -30,29 +33,32 @@ export const AdminDashboard: React.FC = () => {
   const [selectedKejuruanFilter, setSelectedKejuruanFilter] = useState<string>('all');
   const [activeAdminView, setActiveAdminView] = useState<'mentors' | 'trainees'>('mentors');
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [toastIsError, setToastIsError] = useState(false);
+  const [isApprovingAll, setIsApprovingAll] = useState(false);
 
   useEffect(() => {
     let inFlight: Promise<void> | null = null;
     const refresh = () => {
       if (inFlight) return;
-      inFlight = refreshAttendanceRecords().finally(() => {
+      inFlight = refreshAttendanceRecordsForDate(today).finally(() => {
         inFlight = null;
       });
     };
     refresh();
     window.addEventListener('focus', refresh);
-    const timer = window.setInterval(refresh, 30000);
+    const timer = window.setInterval(refresh, 15000);
     return () => {
       window.removeEventListener('focus', refresh);
       window.clearInterval(timer);
     };
-  }, [refreshAttendanceRecords]);
+  }, [refreshAttendanceRecordsForDate, today]);
 
   const mentors = useMemo(() => users.filter((u) => u.role === 'mentor'), [users]);
   const trainees = useMemo(() => users.filter((u) => u.role === 'trainee'), [users]);
 
-  const showToast = (msg: string) => {
+  const showToast = (msg: string, success = true) => {
     setToastMessage(msg);
+    setToastIsError(!success);
     setTimeout(() => setToastMessage(null), 2500);
   };
 
@@ -123,15 +129,15 @@ export const AdminDashboard: React.FC = () => {
     };
   }, [trainees.length, traineeTodayRecords]);
 
-  const handleApproveAllPendingMentors = () => {
-    let count = 0;
-    mentorTodayRecords.forEach(({ record }) => {
-      if (record && record.verificationStatus === 'pending') {
-        verifyAttendance(record.id, 'verified');
-        count++;
-      }
-    });
-    showToast(`Berhasil menyetujui ${count} presensi mentor!`);
+  const handleApproveAllPendingMentors = async () => {
+    if (isApprovingAll) return;
+    setIsApprovingAll(true);
+    try {
+      const result = await approvePendingMentorAttendance();
+      showToast(result.message, result.success);
+    } finally {
+      setIsApprovingAll(false);
+    }
   };
 
   const handleExportExcel = () => {
@@ -159,7 +165,7 @@ export const AdminDashboard: React.FC = () => {
   return (
     <div className="space-y-6">
       {toastMessage && (
-        <div className="fixed bottom-7 left-1/2 -translate-x-1/2 z-50 rounded-xl bg-[#0D2F47] px-5 py-3 text-center text-sm font-bold text-white shadow-xl flex items-center gap-2 animate-in fade-in slide-in-from-bottom-2">
+        <div className={`fixed bottom-7 left-1/2 -translate-x-1/2 z-50 rounded-xl ${toastIsError ? 'bg-[#9F2945]' : 'bg-[#0D2F47]'} px-5 py-3 text-center text-sm font-bold text-white shadow-xl flex items-center gap-2 animate-in fade-in slide-in-from-bottom-2`}>
           <Check className="w-4 h-4 text-[#A9C7DE]" />
           <span>{toastMessage}</span>
         </div>
@@ -188,7 +194,10 @@ export const AdminDashboard: React.FC = () => {
 
           <button
             type="button"
-            onClick={() => setActiveAdminView('trainees')}
+            onClick={() => {
+              setActiveAdminView('trainees');
+              void refreshUsers();
+            }}
             className={`px-3.5 py-2 rounded-lg text-xs font-bold transition cursor-pointer flex items-center gap-2 ${
               activeAdminView === 'trainees'
                 ? 'bg-[#123B59] text-white shadow-xs'
@@ -203,11 +212,12 @@ export const AdminDashboard: React.FC = () => {
         {activeAdminView === 'mentors' && mentorStats.pendingVerification > 0 && (
           <button
             type="button"
+            disabled={isApprovingAll}
             onClick={handleApproveAllPendingMentors}
-            className="px-4 py-2 rounded-xl bg-[#123B59] hover:bg-[#0D2F47] text-white text-xs font-bold transition cursor-pointer flex items-center gap-1.5 shadow-sm"
+            className="px-4 py-2 rounded-xl bg-[#123B59] hover:bg-[#0D2F47] text-white text-xs font-bold transition cursor-pointer flex items-center gap-1.5 shadow-sm disabled:opacity-60"
           >
             <Check className="w-3.5 h-3.5 text-[#A9C7DE]" />
-            <span>Setujui Semua Pending ({mentorStats.pendingVerification})</span>
+            <span>{isApprovingAll ? 'Menyetujui...' : `Setujui Semua Pending (${mentorStats.pendingVerification})`}</span>
           </button>
         )}
       </div>
@@ -224,11 +234,11 @@ export const AdminDashboard: React.FC = () => {
           <MentorAttendanceTable
             mentorRecords={mentorTodayRecords}
             onVerify={(recordId, status) => {
-              verifyAttendance(recordId, status);
-              showToast(`Status presensi berhasil diubah menjadi ${status}`);
+              return verifyAttendance(recordId, status);
             }}
             onMarkStatus={markAttendanceStatus}
             onManualAdd={manualAddOrUpdateAttendance}
+            onActionResult={(message, success) => showToast(message, success)}
             todayDate={today}
           />
         </div>

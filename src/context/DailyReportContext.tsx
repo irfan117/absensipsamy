@@ -69,7 +69,7 @@ export const DailyReportProvider: React.FC<{ children: React.ReactNode }> = ({ c
     reviewNotes?: string
   ) => {
     try {
-      const res = await api.reviewDailyReport(reportId, status, reviewNotes);
+      const res = await api.reviewDailyReport(reportId, status, reviewNotes || '');
       if (res.success) {
         await refreshDailyReports();
       }

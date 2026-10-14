@@ -250,8 +250,12 @@ export const MissionManagementView: React.FC = () => {
     if (!window.confirm(`Hapus misi "${mission.title}"? Seluruh data tugas yang terkumpul akan hilang.`)) {
       return;
     }
-    await deleteMission(mission.id);
-    showToast('Misi berhasil dihapus');
+    try {
+      await deleteMission(mission.id);
+      showToast('Misi berhasil dihapus');
+    } catch (error: any) {
+      showToast(error?.message || 'Gagal menghapus misi');
+    }
   };
 
   const handleResetData = async () => {
@@ -477,7 +481,7 @@ export const MissionManagementView: React.FC = () => {
         mentorKejuruanIds={mentorKejuruanIds}
         onSubmit={async (data, editingId) => {
           if (editingId) {
-            updateMission(editingId, data);
+            await updateMission(editingId, data);
             showToast('Misi berhasil diperbarui');
           } else {
             await addMission(data);
@@ -490,11 +494,9 @@ export const MissionManagementView: React.FC = () => {
         isOpen={isSubmitModalOpen}
         onClose={() => setIsSubmitModalOpen(false)}
         mission={targetMissionForSubmit}
-        onSubmit={(subData) => {
-          const res = submitMissionWork(subData);
-          if (res.success) {
-            showToast(res.message);
-          }
+        onSubmit={async (subData) => {
+          const res = await submitMissionWork(subData);
+          if (res.success) showToast(res.message);
           return res;
         }}
       />

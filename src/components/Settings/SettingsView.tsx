@@ -18,12 +18,18 @@ export const SettingsView: React.FC = () => {
   const [endTime, setEndTime] = useState(settings.endTime);
   const [locationName, setLocationName] = useState(settings.officeLocation.name || 'Punya Skill Akademi, Bandung');
   const [radiusMeters, setRadiusMeters] = useState(settings.officeLocation.radiusMeters);
-  const [officeLat, setOfficeLat] = useState(settings.officeLocation.lat);
-  const [officeLng, setOfficeLng] = useState(settings.officeLocation.lng);
+  // Keep coordinate inputs as strings so users can type/paste decimals without
+  // React coercing an empty or partially entered value to zero.
+  const [officeLat, setOfficeLat] = useState(String(settings.officeLocation.lat));
+  const [officeLng, setOfficeLng] = useState(String(settings.officeLocation.lng));
+  const [pastedLocation, setPastedLocation] = useState('');
+  const [isLocating, setIsLocating] = useState(false);
   const [locationError, setLocationError] = useState('');
   const [savedSuccess, setSavedSuccess] = useState(false);
   const [saveError, setSaveError] = useState('');
   const [isSaving, setIsSaving] = useState(false);
+  const [isReloading, setIsReloading] = useState(false);
+  const [reloadMessage, setReloadMessage] = useState('');
 
   useEffect(() => {
     setStartTime(settings.startTime);
@@ -33,8 +39,8 @@ export const SettingsView: React.FC = () => {
     setEndTime(settings.endTime);
     setLocationName(settings.officeLocation.name || 'Punya Skill Akademi, Bandung');
     setRadiusMeters(settings.officeLocation.radiusMeters);
-    setOfficeLat(settings.officeLocation.lat);
-    setOfficeLng(settings.officeLocation.lng);
+    setOfficeLat(String(settings.officeLocation.lat));
+    setOfficeLng(String(settings.officeLocation.lng));
   }, [settings]);
 
   const handleSave = async (e: React.FormEvent) => {
@@ -42,6 +48,24 @@ export const SettingsView: React.FC = () => {
     setIsSaving(true);
     setSaveError('');
     setSavedSuccess(false);
+    const latitude = Number(officeLat.trim());
+    const longitude = Number(officeLng.trim());
+    const radius = Number(radiusMeters);
+    if (!Number.isFinite(latitude) || latitude < -90 || latitude > 90) {
+      setSaveError('Latitude harus berupa angka antara -90 dan 90.');
+      setIsSaving(false);
+      return;
+    }
+    if (!Number.isFinite(longitude) || longitude < -180 || longitude > 180) {
+      setSaveError('Longitude harus berupa angka antara -180 dan 180.');
+      setIsSaving(false);
+      return;
+    }
+    if (!Number.isFinite(radius) || radius < 10 || radius > 5000) {
+      setSaveError('Radius geofence harus antara 10 dan 5000 meter.');
+      setIsSaving(false);
+      return;
+    }
     const parsedPenalty = Number(latePointPenalty);
     const penaltyPerMinute = latePointPenalty.trim() === '' || !Number.isFinite(parsedPenalty)
       ? DEFAULT_LATE_POINT_PENALTY_PER_MINUTE
@@ -57,10 +81,10 @@ export const SettingsView: React.FC = () => {
       absentPointPenaltyPerDay: absentPenaltyPerDay,
       endTime,
       officeLocation: {
-        lat: Number(officeLat),
-        lng: Number(officeLng),
+        lat: latitude,
+        lng: longitude,
         name: locationName,
-        radiusMeters: Number(radiusMeters)
+        radiusMeters: radius
       }
     });
     setIsSaving(false);
@@ -236,24 +260,53 @@ export const SettingsView: React.FC = () => {
             </div>
             <div>
               <label className="block text-[#123B59] font-bold mb-1.5">Latitude Kampus</label>
-              <input type="number" step="any" value={officeLat} onChange={e => setOfficeLat(Number(e.target.value))} className="w-full p-2.5 rounded-xl border border-[#E4EAF0] bg-[#F8FAFB] text-[#123B59] font-bold outline-none focus:border-[#4C83B5]" required />
+              <input type="text" inputMode="decimal" value={officeLat} onChange={e => setOfficeLat(e.target.value)} placeholder="-6.200000" className="w-full p-2.5 rounded-xl border border-[#E4EAF0] bg-[#F8FAFB] text-[#123B59] font-bold outline-none focus:border-[#4C83B5]" required />
             </div>
             <div>
               <label className="block text-[#123B59] font-bold mb-1.5">Longitude Kampus</label>
-              <input type="number" step="any" value={officeLng} onChange={e => setOfficeLng(Number(e.target.value))} className="w-full p-2.5 rounded-xl border border-[#E4EAF0] bg-[#F8FAFB] text-[#123B59] font-bold outline-none focus:border-[#4C83B5]" required />
+              <input type="text" inputMode="decimal" value={officeLng} onChange={e => setOfficeLng(e.target.value)} placeholder="106.800000" className="w-full p-2.5 rounded-xl border border-[#E4EAF0] bg-[#F8FAFB] text-[#123B59] font-bold outline-none focus:border-[#4C83B5]" required />
             </div>
             <div className="sm:col-span-3 flex flex-wrap items-center gap-3">
-              <button type="button" onClick={() => {
+              <button type="button" disabled={isLocating} onClick={() => {
                 if (!navigator.geolocation) { setLocationError('Perangkat ini tidak mendukung GPS.'); return; }
                 setLocationError('');
+                setIsLocating(true);
                 navigator.geolocation.getCurrentPosition(position => {
-                  setOfficeLat(Number(position.coords.latitude.toFixed(6)));
-                  setOfficeLng(Number(position.coords.longitude.toFixed(6)));
-                }, () => setLocationError('Lokasi kampus tidak terdeteksi. Izinkan akses GPS saat berada di Punya Skill Akademi, Bandung.'), { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 });
-              }} className="inline-flex max-w-full items-center gap-2 rounded-xl border border-[#C8DCEB] bg-[#EEF6FB] px-3 py-2.5 text-left font-bold text-[#28618F]">
-                <LocateFixed className="h-4 w-4 shrink-0" /> Ambil pin GPS kampus dari lokasi saat ini
+                  setOfficeLat(position.coords.latitude.toFixed(6));
+                  setOfficeLng(position.coords.longitude.toFixed(6));
+                  setLocationError('Pin GPS perangkat terisi. Simpan pengaturan untuk menerapkannya.');
+                  setIsLocating(false);
+                }, error => {
+                  const reason = error.code === error.PERMISSION_DENIED
+                    ? 'Izin lokasi ditolak. Aktifkan izin lokasi browser.'
+                    : error.code === error.POSITION_UNAVAILABLE
+                      ? 'Posisi GPS tidak tersedia. Periksa layanan lokasi perangkat.'
+                      : 'GPS belum merespons. Coba lagi atau masukkan koordinat manual.';
+                  setLocationError(`${reason} Akses GPS browser memerlukan HTTPS atau localhost.`);
+                  setIsLocating(false);
+                }, { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 });
+              }} className="inline-flex max-w-full items-center gap-2 rounded-xl border border-[#C8DCEB] bg-[#EEF6FB] px-3 py-2.5 text-left font-bold text-[#28618F] disabled:opacity-60">
+                <LocateFixed className="h-4 w-4 shrink-0" /> {isLocating ? 'Mencari lokasi GPS…' : 'Ambil pin GPS perangkat saat ini'}
               </button>
-              <a className="text-xs font-semibold text-[#28618F] hover:underline" target="_blank" rel="noreferrer" href={`https://www.google.com/maps?q=${officeLat},${officeLng}`}>Cek pin di Google Maps</a>
+              <a className="text-xs font-semibold text-[#28618F] hover:underline" target="_blank" rel="noreferrer" href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${officeLat},${officeLng}`)}`}>Buka titik di Google Maps</a>
+              <div className="w-full space-y-2 rounded-xl border border-[#E4EAF0] bg-[#F8FAFB] p-3">
+                <label className="block font-bold text-[#123B59]">Atur dari koordinat atau tautan Google Maps</label>
+                <div className="flex flex-col gap-2 sm:flex-row">
+                  <input value={pastedLocation} onChange={e => setPastedLocation(e.target.value)} placeholder="Contoh: -6.200000, 106.800000 atau tempel tautan Maps" className="min-w-0 flex-1 rounded-xl border border-[#E4EAF0] bg-white p-2.5 text-[#123B59] outline-none focus:border-[#4C83B5]" />
+                  <button type="button" onClick={() => {
+                    const decoded = decodeURIComponent(pastedLocation);
+                    const match = decoded.match(/(-?\d{1,2}(?:\.\d+)?)\s*[,;/]\s*(-?\d{1,3}(?:\.\d+)?)/);
+                    if (!match) { setLocationError('Koordinat tidak ditemukan. Tempel format latitude, longitude atau tautan Google Maps yang memuat koordinat.'); return; }
+                    const lat = Number(match[1]);
+                    const lng = Number(match[2]);
+                    if (lat < -90 || lat > 90 || lng < -180 || lng > 180) { setLocationError('Koordinat di luar rentang latitude/longitude yang valid.'); return; }
+                    setOfficeLat(String(lat));
+                    setOfficeLng(String(lng));
+                    setLocationError('Koordinat berhasil diisi. Simpan pengaturan untuk menerapkan pin check-in.');
+                  }} className="shrink-0 rounded-xl bg-[#28618F] px-4 py-2.5 font-bold text-white">Gunakan koordinat</button>
+                </div>
+                <p className="text-[11px] leading-relaxed text-[#6F7F8D]">Di Google Maps, klik kanan titik lokasi lalu salin koordinatnya. Tempel di sini; pin akan menjadi pusat pemeriksaan WFO setelah disimpan.</p>
+              </div>
               {locationError && <p role="alert" className="w-full text-xs font-semibold text-[#B84469]">{locationError}</p>}
               <p className="w-full text-[11px] leading-relaxed text-[#6F7F8D]">Admin perlu mengatur pin ini satu kali saat berada tepat di lokasi Punya Skill Akademi. Presensi WFO memakai pin ini dengan radius 100 m.</p>
             </div>
@@ -296,16 +349,22 @@ export const SettingsView: React.FC = () => {
 
         {/* Footer Actions */}
         <div className="flex flex-col gap-2 pt-2 sm:flex-row sm:items-center sm:justify-between">
+          {reloadMessage && <p role="status" className="text-xs font-semibold text-[#28618F]">{reloadMessage}</p>}
           <button
             type="button"
-            onClick={() => {
+            disabled={isReloading}
+            onClick={async () => {
               if (confirm('Muat ulang seluruh data dari database TiDB?')) {
-                resetToDefaultData();
+                setIsReloading(true);
+                setReloadMessage('');
+                const result = await resetToDefaultData();
+                setIsReloading(false);
+                setReloadMessage(result.message);
               }
             }}
-            className="rounded-xl border border-[#E3C4D0] bg-[#FCF3F6] hover:bg-[#fae3ec] px-4 py-2 text-xs font-bold text-[#B84469] transition cursor-pointer"
+            className="rounded-xl border border-[#E3C4D0] bg-[#FCF3F6] hover:bg-[#fae3ec] px-4 py-2 text-xs font-bold text-[#B84469] transition cursor-pointer disabled:opacity-60"
           >
-            Muat Ulang Data TiDB
+            {isReloading ? 'Memuat ulang...' : 'Muat Ulang Data TiDB'}
           </button>
 
           <button

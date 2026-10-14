@@ -11,7 +11,7 @@ interface SubmitWorkModalProps {
     missionId: string;
     submissionLink?: string;
     notes: string;
-  }) => { success: boolean; message: string };
+  }) => Promise<{ success: boolean; message: string }>;
 }
 
 export const SubmitWorkModal: React.FC<SubmitWorkModalProps> = ({
@@ -23,21 +23,29 @@ export const SubmitWorkModal: React.FC<SubmitWorkModalProps> = ({
   const [submissionLink, setSubmissionLink] = useState('');
   const [notes, setNotes] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   if (!mission) return null;
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!submissionLink.trim() && !notes.trim()) {
       setError('Harap sertakan tautan hasil kerja atau catatan penyelesaian.');
       return;
     }
 
-    const res = onSubmit({
-      missionId: mission.id,
-      submissionLink: submissionLink.trim() || undefined,
-      notes: notes.trim(),
-    });
+    setIsSubmitting(true);
+    let res: { success: boolean; message: string };
+    try {
+      res = await onSubmit({
+        missionId: mission.id,
+        submissionLink: submissionLink.trim() || undefined,
+        notes: notes.trim(),
+      });
+    } catch (submitError: any) {
+      res = { success: false, message: submitError?.message || 'Gagal mengirim tugas.' };
+    }
+    setIsSubmitting(false);
 
     if (res.success) {
       setSubmissionLink('');
@@ -108,6 +116,7 @@ export const SubmitWorkModal: React.FC<SubmitWorkModalProps> = ({
           </button>
           <button
             type="submit"
+            disabled={isSubmitting}
             className="px-5 py-2.5 rounded-xl bg-[#2E7D32] hover:bg-[#256628] text-white text-xs font-bold transition flex items-center gap-1.5 shadow-2xs"
           >
             <Send className="w-3.5 h-3.5" />

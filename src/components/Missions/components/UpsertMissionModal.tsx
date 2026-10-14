@@ -31,6 +31,7 @@ export const UpsertMissionModal: React.FC<UpsertMissionModalProps> = ({
   const [kejuruanId, setKejuruanId] = useState('');
   const [kejuruanName, setKejuruanName] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState('');
 
   useEffect(() => {
     if (editingMission) {
@@ -61,9 +62,10 @@ export const UpsertMissionModal: React.FC<UpsertMissionModalProps> = ({
     if (!title.trim() || !description.trim()) return;
 
     setIsSubmitting(true);
+    setSubmitError('');
     const selectedProgram = kejuruanList.find((k) => k.id === kejuruanId);
-
-    await onSubmit(
+    try {
+      await onSubmit(
       {
         title: title.trim(),
         description: description.trim(),
@@ -78,11 +80,14 @@ export const UpsertMissionModal: React.FC<UpsertMissionModalProps> = ({
         status: 'active',
         category: selectedProgram?.category || 'Teknologi',
       },
-      editingMission?.id
-    );
-
-    setIsSubmitting(false);
-    onClose();
+        editingMission?.id
+      );
+      onClose();
+    } catch (error: any) {
+      setSubmitError(error?.message || 'Misi gagal disimpan ke server.');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -94,6 +99,7 @@ export const UpsertMissionModal: React.FC<UpsertMissionModalProps> = ({
       maxWidth="lg"
     >
       <form onSubmit={handleSubmit} className="space-y-4">
+        {submitError && <p className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-xs text-rose-700">{submitError}</p>}
         <div>
           <label className="block text-xs font-bold text-[#123B59] mb-1">
             Judul Misi <span className="text-rose-500">*</span>

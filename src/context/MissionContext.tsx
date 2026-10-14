@@ -118,7 +118,7 @@ export const MissionProvider: React.FC<{ children: React.ReactNode }> = ({ child
     feedback?: string,
     awardedPoints?: number
   ) => {
-    void api.reviewMissionSubmission(submissionId, { status, feedback, awardedPoints });
+    await api.reviewMissionSubmission(submissionId, { status, feedback: feedback || '', awardedPoints });
     setMissionSubmissions((prev =>
       prev.map((s) =>
         s.id === submissionId

@@ -16,7 +16,7 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [currentUser, setCurrentUser] = useState<User | null>(() => api.getToken() ? { id: 'temp', name: 'Loading...', role: 'trainee', kejuruanId: '', kejuruanName: '' } : null);
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [jwtToken, setJwtToken] = useState<string | null>(() => api.getToken());
   const [authReady, setAuthReady] = useState(false);
 

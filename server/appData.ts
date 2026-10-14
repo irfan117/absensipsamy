@@ -142,14 +142,26 @@ appDataRouter.get('/', authenticateToken, async (req: AuthenticatedRequest, res:
     const user = req.user!;
     const pool = getPool();
     const scope = user.role === 'admin' ? null : user.role === 'mentor' ? user.kejuruanId || '' : user.id;
-    const programNames = user.role === 'admin' ? [] : assignedProgramNames(user);
-    const nameClause = normalizedNameClause('name', programNames);
+    const assignedNames = user.role === 'admin' ? [] : assignedProgramNames(user);
+    const nameClause = normalizedNameClause('name', assignedNames);
     const [kejuruanRows] = await pool.query<any[]>(scope === null
       ? 'SELECT * FROM kejuruan ORDER BY name'
       : user.role === 'mentor'
-        ? `SELECT * FROM kejuruan WHERE id = ? OR mentor_id = ?${nameClause ? ` OR ${nameClause}` : ''} ORDER BY name`
+        ? `SELECT * FROM kejuruan
+            WHERE id = ? OR mentor_id = ?
+              OR LOWER(TRIM(mentor_name)) = LOWER(TRIM(?))
+              OR LOWER(TRIM(mentor_name)) LIKE CONCAT('%', LOWER(TRIM(?)), '%')
+              ${nameClause ? ` OR ${nameClause}` : ''}
+            ORDER BY name`
         : `SELECT * FROM kejuruan WHERE id = ?${nameClause ? ` OR ${nameClause}` : ''} ORDER BY name`,
-    scope === null ? [] : user.role === 'mentor' ? [scope, user.id, ...programNames] : [user.kejuruanId || '', ...programNames]);
+    scope === null
+      ? []
+      : user.role === 'mentor'
+        ? [scope || '', user.id, user.name || '', user.name || '', ...assignedNames]
+        : [user.kejuruanId || '', ...assignedNames]);
+    const programNames = user.role === 'mentor'
+      ? [...new Set([...assignedNames, ...kejuruanRows.map((row: any) => String(row.name || '').trim().toLowerCase()).filter(Boolean)])]
+      : assignedNames;
 
     const scopedQuery = async (table: string, field: string, value: string | null) => {
       const [rows] = await pool.query<any[]>(value === null ? `SELECT * FROM ${table}` : `SELECT * FROM ${table} WHERE ${field} = ?`, value === null ? [] : [value]);
@@ -539,6 +551,9 @@ appDataRouter.put('/attendance', authenticateToken, async (req: AuthenticatedReq
     );
     const target = targetRows[0];
     if (!target) return res.status(404).json({ success: false, message: 'Akun untuk record presensi tidak ditemukan.' });
+    if (user.role === 'admin' && target.role !== 'mentor') {
+      return res.status(403).json({ success: false, message: 'Admin hanya dapat menetapkan atau memverifikasi presensi mentor.' });
+    }
 
     if (user.role === 'mentor' && target.id !== user.id) {
       const names = assignedProgramNames(user);
@@ -576,11 +591,6 @@ appDataRouter.put('/attendance', authenticateToken, async (req: AuthenticatedReq
     // Penalti keterlambatan memakai check-in efektif (request ini atau yang sudah
     // tersimpan) supaya retry tidak menghitung poin dua kali.
     const penaltySettings = await loadPenaltySettings();
-    const latePenalty = computeLatePenalty(penaltySettings, {
-      role: target.role,
-      status: input.status,
-      checkInTime: checkInTime || existingRecord?.check_in_time || null,
-    });
     // A retry or stale browser state must never replace the original check-in
     // time or agenda. Return the persisted row as the source of truth.
     if (existingRecord && target.id === user.id && checkInTime && !checkOutTime && existingRecord.check_in_time) {
@@ -591,6 +601,34 @@ appDataRouter.put('/attendance', authenticateToken, async (req: AuthenticatedReq
         attendanceRecord: mapAttendance(existingRecord),
       });
     }
+    let effectiveStatus = input.status;
+    if (user.role === 'trainee' && target.id === user.id && checkInTime && ['hadir', 'terlambat'].includes(input.status)) {
+      const [settingsRows] = await pool.query<any[]>('SELECT office_location FROM attendance_settings ORDER BY updated_at DESC LIMIT 1');
+      const setting = settingsRows[0];
+      const office = setting?.office_location
+        ? typeof setting.office_location === 'string' ? JSON.parse(setting.office_location) : setting.office_location
+        : null;
+      const geofenceCoordinates = checkOutTime ? (input.checkOutCoordinates || coordinates) : coordinates;
+      if (input.workMode === 'WFO' && office && Number.isFinite(Number(geofenceCoordinates.lat)) && Number.isFinite(Number(geofenceCoordinates.lng))) {
+        const rad = (value: number) => value * Math.PI / 180;
+        const lat1 = Number(office.lat); const lon1 = Number(office.lng);
+        const lat2 = Number(geofenceCoordinates.lat); const lon2 = Number(geofenceCoordinates.lng);
+        const dLat = rad(lat2 - lat1); const dLon = rad(lon2 - lon1);
+        const a = Math.sin(dLat / 2) ** 2 + Math.cos(rad(lat1)) * Math.cos(rad(lat2)) * Math.sin(dLon / 2) ** 2;
+        const distanceMeters = 6371000 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        if (distanceMeters > Number(office.radiusMeters || 0)) {
+          return res.status(403).json({ success: false, message: `Presensi WFO ditolak. Jarak Anda ${Math.round(distanceMeters)} m dari lokasi kantor.` });
+        }
+      }
+      const limitMinutes = Number(String(penaltySettings.lateLimitTime || '09:00').slice(0, 2)) * 60 + Number(String(penaltySettings.lateLimitTime || '09:00').slice(3, 5));
+      const checkInMinutes = Number(String(checkInTime).slice(0, 2)) * 60 + Number(String(checkInTime).slice(3, 5));
+      effectiveStatus = checkInMinutes > limitMinutes ? 'terlambat' : 'hadir';
+    }
+    const latePenalty = computeLatePenalty(penaltySettings, {
+      role: target.role,
+      status: effectiveStatus,
+      checkInTime: checkInTime || existingRecord?.check_in_time || null,
+    });
     // Old deterministic IDs (`att-<user>-<date>`) can collide with legacy
     // records. The database's UNIQUE(user_id, attendance_date) is the proper
     // idempotency key; use an unrelated random primary key for new rows.
@@ -608,7 +646,7 @@ appDataRouter.put('/attendance', authenticateToken, async (req: AuthenticatedReq
         work_mode=${protectExistingCheckIn ? 'IF(check_in_time IS NULL,COALESCE(VALUES(work_mode),work_mode),COALESCE(work_mode,VALUES(work_mode)))' : 'COALESCE(VALUES(work_mode),work_mode)'},
         check_in_time=COALESCE(VALUES(check_in_time),check_in_time),
         check_out_time=COALESCE(VALUES(check_out_time),check_out_time),
-        status=VALUES(status),location=VALUES(location),latitude=VALUES(latitude),
+      status=VALUES(status),location=VALUES(location),latitude=VALUES(latitude),
         longitude=VALUES(longitude),photo_url=VALUES(photo_url),
         late_minutes=VALUES(late_minutes),late_penalty_points=VALUES(late_penalty_points),
         verification_status=IF(?,VALUES(verification_status),verification_status),
@@ -616,7 +654,7 @@ appDataRouter.put('/attendance', authenticateToken, async (req: AuthenticatedReq
         rejection_reason=IF(?,VALUES(rejection_reason),rejection_reason)`,
       [
         id,target.id,target.name,target.nim,target.role,target.kejuruan_id || null,target.kejuruan_name || 'Umum',date,
-        checkInTime,checkOutTime,input.status,verificationStatus,verifiedBy,verifiedAt,
+        checkInTime,checkOutTime,effectiveStatus,verificationStatus,verifiedBy,verifiedAt,
         input.location || null,coordinates.lat ?? null,coordinates.lng ?? null,input.notes || null,input.photoUrl || null,
         isReview ? input.rejectionReason || null : null,input.workMode === 'WFH' ? 'WFH' : input.workMode === 'WFO' ? 'WFO' : null,
         latePenalty.lateMinutes, latePenalty.latePenaltyPoints,
@@ -665,6 +703,7 @@ appDataRouter.patch('/daily-reports/:id/review', authenticateToken, async (req: 
     const [rows] = await pool.query<any[]>('SELECT * FROM daily_reports WHERE id = ? LIMIT 1', [req.params.id]);
     const report = rows[0];
     if (!report) return res.status(404).json({ success: false, message: 'Laporan harian tidak ditemukan.' });
+    if (report.status !== 'pending') return res.status(409).json({ success: false, message: 'Laporan ini sudah ditinjau sebelumnya.' });
     if (user.role === 'mentor') {
       const programNames = assignedProgramNames(user);
       const matchesProgram = String(report.kejuruan_id || '') === String(user.kejuruanId || '') ||

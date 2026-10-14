@@ -22,6 +22,7 @@ export const TraineeManagementView: React.FC = () => {
     deleteUsersByRole,
     deleteTraineesByIds,
     addKejuruan,
+    updateKejuruan,
     importUsers,
     regenerateUserCredentials,
   } = useApp();
@@ -388,8 +389,9 @@ export const TraineeManagementView: React.FC = () => {
         isOpen={isAddUserModalOpen}
         onClose={() => setIsAddUserModalOpen(false)}
         kejuruanList={kejuruanList}
+        mentors={mentors}
         onSubmit={async (userData) => {
-          const res = await addUser(userData as any);
+          const res = await addUser(userData);
           showToast(res.message);
           return res;
         }}
@@ -398,9 +400,17 @@ export const TraineeManagementView: React.FC = () => {
       <AddKejuruanModal
         isOpen={isAddKjModalOpen}
         onClose={() => setIsAddKjModalOpen(false)}
+        mentors={mentors}
+        kejuruanList={kejuruanList}
         onSubmit={async (kjData) => {
-          addKejuruan(kjData);
-          showToast('Kejuruan berhasil ditambahkan');
+          const res = await addKejuruan(kjData);
+          showToast(res.message);
+          return res;
+        }}
+        onUpdate={async (id, kjData) => {
+          const res = await updateKejuruan(id, kjData);
+          showToast(res.message);
+          return res;
         }}
       />
 
