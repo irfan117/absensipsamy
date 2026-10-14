@@ -2,7 +2,7 @@ import React, { createContext, useContext, useState, useEffect, useCallback } fr
 import { AttendanceRecord, AttendanceSettings, AttendanceStatus, VerificationStatus } from '../types';
 import { INITIAL_SETTINGS } from '../data/mockData';
 import { computeLatePenalty, computeAbsentPenalty } from '../utils/latePenalty';
-import { getTodayDateString } from '../utils/dateUtils';
+import { getCurrentTimeWIB, getTodayDateString } from '../utils/dateUtils';
 import { api } from '../services/api';
 import { useAuth } from './AuthContext';
 
@@ -54,8 +54,32 @@ export const AttendanceProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
   const clockIn = async (notes?: string, photoUrl?: string, coordinates?: { lat: number; lng: number }, workMode: 'WFO' | 'WFH' = 'WFO') => {
     if (!currentUser) return { success: false, message: 'User tidak ditemukan.' };
+    if (currentUser.role !== 'trainee') return { success: false, message: 'Aksi ini hanya tersedia untuk peserta.' };
     try {
-      const res = await api.clockIn({ notes, photoUrl, coordinates, workMode });
+      const date = getTodayDateString();
+      const existing = getTodayRecordForUser(currentUser.id);
+      if (existing?.checkInTime) return { success: false, message: `Anda sudah presensi masuk pukul ${existing.checkInTime}.` };
+      const checkInTime = getCurrentTimeWIB();
+      const record: AttendanceRecord = {
+        ...(existing || {} as AttendanceRecord),
+        id: existing?.id || `att-${currentUser.id}-${date}`,
+        userId: currentUser.id,
+        userName: currentUser.name,
+        userNim: currentUser.nim || '',
+        userRole: currentUser.role,
+        kejuruanId: currentUser.kejuruanId || '',
+        kejuruanName: currentUser.kejuruanName || '',
+        date,
+        checkInTime,
+        status: checkInTime.slice(0, 5) > (settings.lateLimitTime || '09:00') ? 'terlambat' : 'hadir',
+        verificationStatus: 'pending',
+        notes,
+        photoUrl,
+        coordinates,
+        checkInCoordinates: coordinates,
+        workMode,
+      };
+      const res = await api.clockIn(record);
       if (res.success) {
         await refreshAttendanceRecords();
       }
@@ -67,8 +91,16 @@ export const AttendanceProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
   const clockOut = async (notes?: string, coordinates?: { lat: number; lng: number }) => {
     if (!currentUser) return { success: false, message: 'User tidak ditemukan.' };
+    const existing = getTodayRecordForUser(currentUser.id);
+    if (!existing?.checkInTime) return { success: false, message: 'Anda belum melakukan presensi masuk hari ini.' };
+    if (existing.checkOutTime) return { success: false, message: `Anda sudah presensi keluar pukul ${existing.checkOutTime}.` };
     try {
-      const res = await api.clockOut({ notes, coordinates });
+      const res = await api.clockOut({
+        ...existing,
+        checkOutTime: getCurrentTimeWIB(),
+        notes: notes || existing.notes,
+        checkOutCoordinates: coordinates,
+      });
       if (res.success) {
         await refreshAttendanceRecords();
       }

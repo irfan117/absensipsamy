@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { useApp } from '../../context/AppContext';
 import { MobileHeaderStatus } from '../MobileHeaderStatus';
 import { Mission, MissionDifficulty, MissionSubmission } from '../../types';
@@ -13,8 +13,7 @@ import {
   CheckCircle2,
   Clock
 } from 'lucide-react';
-import { getMentorKejuruanIds } from '../../utils/mentorKejuruan';
-import { getKejuruanFilterOptions, matchesKejuruanFilter } from '../../utils/kejuruanCodes';
+import { matchesKejuruanFilter } from '../../utils/kejuruanCodes';
 
 import { MissionCard } from './components/MissionCard';
 import { UpsertMissionModal } from './components/UpsertMissionModal';
@@ -58,50 +57,19 @@ export const MissionManagementView: React.FC = () => {
       window.removeEventListener('focus', refresh);
       window.clearInterval(timer);
     };
-  }, [isAdmin, currentUser.id, jwtToken, refreshMissions]);
+  // Context methods are recreated on render; depending on refreshMissions
+  // restarts polling after every response and can saturate the API.
+  }, [isAdmin, currentUser.id, jwtToken]);
 
-  const mentorKejuruanIds = useMemo(
-    () => getMentorKejuruanIds(currentUser, kejuruanList),
-    [currentUser, kejuruanList]
-  );
-
-  const mentorProgramNames = useMemo(
-    () =>
-      new Set(
-        kejuruanList
-          .filter((program) => mentorKejuruanIds.includes(program.id))
-          .map((program) => normalizeProgramName(program.name))
-          .filter((name): name is string => !!name)
-      ),
-    [kejuruanList, mentorKejuruanIds]
-  );
-
-  const mentorHasSubPrograms =
-    isMentor &&
-    mentorKejuruanIds.some((id) =>
-      kejuruanList.find((program) => program.id === id)?.subPrograms?.length
-    );
+  const profileProgramName = normalizeProgramName(currentUser.kejuruanName);
+  const matchesProfileProgram = useCallback((id?: string, name?: string) =>
+    (!!id && id === currentUser.kejuruanId) ||
+    (!!name && normalizeProgramName(name) === profileProgramName) ||
+    (!!currentUser.kejuruanId && matchesKejuruanFilter(currentUser.kejuruanId, kejuruanList, id, name)),
+  [currentUser.kejuruanId, profileProgramName, kejuruanList]);
 
   const [activeTab, setActiveTab] = useState<'missions' | 'submissions'>(
     isAdmin ? 'submissions' : 'missions'
-  );
-
-  const [selectedKejuruanFilter, setSelectedKejuruanFilter] = useState<string>(
-    isMentor
-      ? mentorKejuruanIds.length > 1 || mentorHasSubPrograms
-        ? 'all'
-        : mentorKejuruanIds[0] || 'all'
-      : isTrainee && currentUser.kejuruanName
-      ? getKejuruanFilterOptions(kejuruanList).find(
-          (option) =>
-            option.programId === currentUser.kejuruanId &&
-            option.name.toLowerCase() === currentUser.kejuruanName?.toLowerCase()
-        )?.value ||
-        currentUser.kejuruanId ||
-        'all'
-      : isTrainee
-      ? currentUser.kejuruanId || 'all'
-      : 'all'
   );
 
   const [selectedDifficulty, setSelectedDifficulty] = useState<string>('all');
@@ -128,28 +96,7 @@ export const MissionManagementView: React.FC = () => {
   // Filter missions
   const filteredMissions = useMemo(() => {
     return missions.filter((m) => {
-      const selectedOption = getKejuruanFilterOptions(kejuruanList).find(
-        (option) => option.value === selectedKejuruanFilter
-      );
-      const selectedProgram = kejuruanList.find(
-        (program) => program.id === (selectedOption?.programId || selectedKejuruanFilter)
-      );
-      const selectedProgramName =
-        selectedOption?.name ||
-        (isTrainee || isMentor
-          ? selectedProgram?.name || currentUser.kejuruanName
-          : selectedProgram?.name);
-      const missionProgramName = normalizeProgramName(m.kejuruanName);
-      const matchesAssignedMentorProgram =
-        isMentor && !!missionProgramName && mentorProgramNames.has(missionProgramName);
-      const matchesSelectedProgram =
-        matchesKejuruanFilter(selectedKejuruanFilter, kejuruanList, m.kejuruanId, m.kejuruanName) ||
-        (!!missionProgramName && missionProgramName === normalizeProgramName(selectedProgramName));
-
-      if (isMentor && !mentorKejuruanIds.includes(m.kejuruanId) && !matchesAssignedMentorProgram) {
-        return false;
-      }
-      if (selectedKejuruanFilter !== 'all' && !matchesSelectedProgram) {
+      if ((isMentor || isTrainee) && !matchesProfileProgram(m.kejuruanId, m.kejuruanName)) {
         return false;
       }
       if (selectedDifficulty !== 'all' && m.difficulty !== selectedDifficulty) {
@@ -168,11 +115,10 @@ export const MissionManagementView: React.FC = () => {
     missions,
     isMentor,
     isTrainee,
+    currentUser.kejuruanId,
     currentUser.kejuruanName,
     kejuruanList,
-    mentorKejuruanIds,
-    mentorProgramNames,
-    selectedKejuruanFilter,
+    matchesProfileProgram,
     selectedDifficulty,
     searchQuery,
   ]);
@@ -181,30 +127,8 @@ export const MissionManagementView: React.FC = () => {
   const relevantSubmissions = useMemo(() => {
     return missionSubmissions.filter((sub) => {
       const mission = missions.find((item) => item.id === sub.missionId);
-      const programName = normalizeProgramName(sub.kejuruanName || mission?.kejuruanName);
       const programId = sub.kejuruanId || mission?.kejuruanId;
-      const selectedOption = getKejuruanFilterOptions(kejuruanList).find(
-        (option) => option.value === selectedKejuruanFilter
-      );
-      const selectedProgramName =
-        selectedOption?.name ||
-        kejuruanList.find((program) => program.id === selectedKejuruanFilter)?.name ||
-        currentUser.kejuruanName;
-      const matchesAssignedMentorProgram =
-        isMentor && !!programName && mentorProgramNames.has(programName);
-
-      if (isMentor && !mentorKejuruanIds.includes(programId || '') && !matchesAssignedMentorProgram) {
-        return false;
-      }
-      if (
-        !matchesKejuruanFilter(
-          selectedKejuruanFilter,
-          kejuruanList,
-          programId,
-          sub.kejuruanName || mission?.kejuruanName
-        ) &&
-        programName !== normalizeProgramName(selectedProgramName)
-      ) {
+      if (isMentor && !matchesProfileProgram(programId, sub.kejuruanName || mission?.kejuruanName)) {
         return false;
       }
       return true;
@@ -213,11 +137,10 @@ export const MissionManagementView: React.FC = () => {
     missionSubmissions,
     missions,
     isMentor,
-    mentorKejuruanIds,
-    mentorProgramNames,
     kejuruanList,
+    currentUser.kejuruanId,
     currentUser.kejuruanName,
-    selectedKejuruanFilter,
+    matchesProfileProgram,
   ]);
 
   const pendingSubmissionsCount = useMemo(() => {
@@ -265,7 +188,7 @@ export const MissionManagementView: React.FC = () => {
   };
 
   return (
-    <div className="space-y-6 pb-12">
+    <div className="space-y-6 pb-12 lg:pt-20">
       {toastMessage && (
         <div className="fixed top-4 right-4 z-50 bg-[#123B59] text-white px-4 py-3 rounded-2xl shadow-xl text-xs font-bold border border-white/20 animate-in fade-in slide-in-from-top-4 duration-300">
           {toastMessage}
@@ -389,19 +312,6 @@ export const MissionManagementView: React.FC = () => {
       {/* Filters Bar */}
       <div className="surface p-4 rounded-2xl border border-[#E4EAF0] flex flex-wrap items-center justify-between gap-3 shadow-xs">
         <div className="flex flex-wrap items-center gap-2">
-          <select
-            value={selectedKejuruanFilter}
-            onChange={(e) => setSelectedKejuruanFilter(e.target.value)}
-            className="text-xs py-2 px-3 rounded-xl border border-[#E4EAF0] bg-[#F8FAFB] text-[#123B59] font-bold outline-none"
-          >
-            <option value="all">Semua Program Kejuruan</option>
-            {getKejuruanFilterOptions(kejuruanList).map((opt) => (
-              <option key={opt.value} value={opt.value}>
-                {opt.name}
-              </option>
-            ))}
-          </select>
-
           {activeTab === 'missions' && (
             <select
               value={selectedDifficulty}
@@ -478,7 +388,7 @@ export const MissionManagementView: React.FC = () => {
         editingMission={editingMission}
         kejuruanList={kejuruanList}
         isMentor={isMentor}
-        mentorKejuruanIds={mentorKejuruanIds}
+        mentorKejuruanIds={currentUser.kejuruanId ? [currentUser.kejuruanId] : []}
         onSubmit={async (data, editingId) => {
           if (editingId) {
             await updateMission(editingId, data);

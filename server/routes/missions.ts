@@ -1,7 +1,9 @@
 import { Router, Response } from 'express';
 import { missionController } from '../controllers/index.js';
+import { authenticateToken } from '../auth.js';
 
 const router = Router();
+router.use(authenticateToken);
 
 router.get('/', missionController.getAll);
 router.post('/', missionController.create);

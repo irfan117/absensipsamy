@@ -139,22 +139,62 @@ router.post('/batch', async (req: AuthenticatedRequest, res: Response) => {
   try {
     await connection.beginTransaction();
     const createdUsers: any[] = [];
+    const createdPrograms: string[] = [];
     const seen = new Set<string>();
     for (let index = 0; index < incoming.length; index += 1) {
       const body = incoming[index] || {};
       const name = String(body.name || '').trim();
-      const role = body.role;
+      const roleValue = String(body.role || '').trim().toLowerCase();
+      const role = ['peserta', 'siswa', 'magang'].includes(roleValue) ? 'trainee'
+        : ['instruktur', 'pengajar'].includes(roleValue) ? 'mentor' : roleValue;
       const nim = String(body.nim || body.loginCode || '').trim();
       const loginCode = String(body.loginCode || nim).trim();
       const password = String(body.password || body.plainPassword || '');
-      const kejuruanId = String(body.kejuruanId || '').trim();
-      if (!name || !['mentor', 'trainee'].includes(role) || !/^\d{8}$/.test(nim) || !/^\d{8}$/.test(loginCode) || !/^\d{8}$/.test(password) || !kejuruanId) {
+      let kejuruanId = String(body.kejuruanId || '').trim();
+      if (!name || !['mentor', 'trainee'].includes(role) || !/^\d{8}$/.test(nim) || !/^\d{8}$/.test(loginCode) || !/^\d{8}$/.test(password)) {
         throw new Error(`Data baris ${index + 1} tidak lengkap: nama, role, NIM/kode, sandi 8 digit, dan program wajib valid.`);
       }
       if (seen.has(nim) || seen.has(loginCode)) throw new Error(`NIM atau kode login ganda pada baris ${index + 1}.`);
       seen.add(nim); seen.add(loginCode);
-      const [programRows] = await connection.query<any[]>('SELECT id,name FROM kejuruan WHERE id = ? LIMIT 1', [kejuruanId]);
-      if (!programRows.length) throw new Error(`Program pada baris ${index + 1} tidak ditemukan di database.`);
+      let programRows: any[] = [];
+      if (kejuruanId) {
+        [programRows] = await connection.query<any[]>('SELECT id,name FROM kejuruan WHERE id = ? LIMIT 1', [kejuruanId]);
+      }
+      // Excel files can contain a program label instead of the database ID.
+      // Resolve it against the canonical catalog instead of rejecting the whole import.
+      const programLabel = String(body.kejuruanName || '').trim();
+      if (!programRows.length && programLabel) {
+        const [catalog] = await connection.query<any[]>('SELECT id,name,code FROM kejuruan');
+        const normalizeProgram = (value: unknown) => String(value || '').normalize('NFD')
+          .replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]/g, '');
+        const normalizedLabel = normalizeProgram(programLabel);
+        const matchedProgram = catalog.find((program) => {
+          const normalizedName = normalizeProgram(program.name);
+          const normalizedCode = normalizeProgram(program.code);
+          return normalizedLabel === normalizedName || normalizedLabel === normalizedCode ||
+            (!!normalizedCode && normalizedLabel.startsWith(normalizedCode)) ||
+            (!!normalizedName && normalizedLabel.startsWith(normalizedName));
+        });
+        programRows = matchedProgram ? [matchedProgram] : [];
+        if (programRows.length) kejuruanId = String(programRows[0].id);
+      }
+      if (!programRows.length && programLabel) {
+        // A new program name in an import is a valid catalog entry. Create it
+        // inside this transaction so the participant can reference it safely.
+        const programId = randomUUID();
+        const programCode = programLabel.trim().split(/\s+/).filter(Boolean)
+          .map((word: string) => word.replace(/[^\p{L}\p{N}]/gu, '').slice(0, 1))
+          .join('').toLocaleUpperCase('id-ID').slice(0, 16) || 'KJ';
+        await connection.query(
+          `INSERT INTO kejuruan (id,name,code,category,color,description,mentor_id,mentor_name)
+           VALUES (?,?,?,'Umum','#2563eb','',NULL,NULL)`,
+          [programId, programLabel, programCode],
+        );
+        programRows = [{ id: programId, name: programLabel }];
+        kejuruanId = programId;
+        createdPrograms.push(programLabel);
+      }
+      if (!programRows.length) throw new Error(`Nama program pada baris ${index + 1} wajib diisi.`);
       const email = String(body.email || `${loginCode}@hadirku.id`).trim();
       const [duplicates] = await connection.query<any[]>('SELECT id FROM users WHERE nim = ? OR login_code = ? OR email = ? LIMIT 1', [nim, loginCode, email]);
       if (duplicates.length) throw new Error(`NIM, kode login, atau email pada baris ${index + 1} sudah digunakan.`);
@@ -169,10 +209,19 @@ router.post('/batch', async (req: AuthenticatedRequest, res: Response) => {
       createdUsers.push({ id,nim,name,email,role,avatar:body.avatar || '',phone:body.phone || '',kejuruanId,kejuruanName:programName,status:'active',joinedDate:body.joinedDate || new Date().toISOString().slice(0,10),loginCode,password,plainPassword:password });
     }
     await connection.commit();
-    return res.status(201).json({ success: true, count: createdUsers.length, createdUsers, message: `${createdUsers.length} akun berhasil diimpor.` });
+    const programMessage = createdPrograms.length
+      ? ` ${[...new Set(createdPrograms)].length} program kejuruan baru juga ditambahkan ke katalog.`
+      : '';
+    return res.status(201).json({ success: true, count: createdUsers.length, createdUsers, message: `${createdUsers.length} akun berhasil diimpor.${programMessage}` });
   } catch (error: any) {
     await connection.rollback();
-    return res.status(400).json({ success: false, message: error?.message || 'Impor akun gagal.' });
+    const duplicate = error?.code === 'ER_DUP_ENTRY' || error?.errno === 1062;
+    const status = duplicate ? 409 : (error instanceof Error && /baris \d+|tidak lengkap|tidak ditemukan|ganda|sudah digunakan/i.test(error.message) ? 400 : 500);
+    const message = duplicate
+      ? 'Impor dibatalkan karena NIM, kode login, atau email sudah terdaftar. Periksa baris yang diimpor dan gunakan data unik.'
+      : error?.message || 'Impor akun gagal.';
+    if (status === 500) console.error('[Users] batch import database error:', error);
+    return res.status(status).json({ success: false, message, ...(duplicate ? { code: 'DUPLICATE_USER' } : {}) });
   } finally {
     connection.release();
   }

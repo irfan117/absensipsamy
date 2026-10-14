@@ -111,6 +111,38 @@ export const kejuruanController = {
   },
 };
 
+export const usersController = {
+  getAll: async (req: Request, res: Response) => {
+    try {
+      const user = req.user!;
+      let rows: any[];
+      if (user.role === 'admin') {
+        [rows] = await getPool().query<any[]>("SELECT * FROM users ORDER BY name");
+      } else if (user.role === 'mentor') {
+        const programs = await getKejuruan('mentor', user);
+        const ids = [...new Set(programs.map((program: any) => String(program.id)))];
+        if (!ids.length) return res.json({ success: true, users: [] });
+        [rows] = await getPool().query<any[]>(
+          `SELECT * FROM users WHERE role = 'trainee' AND kejuruan_id IN (${ids.map(() => '?').join(',')}) ORDER BY name`,
+          ids
+        );
+      } else {
+        [rows] = await getPool().query<any[]>('SELECT * FROM users WHERE id = ? LIMIT 1', [user.id]);
+      }
+      const users = rows.map((row: any) => ({
+        id: String(row.id), nim: String(row.nim || ''), name: String(row.name || ''),
+        email: row.email || '', role: row.role, avatar: row.avatar || '', phone: row.phone || '',
+        status: row.status || 'active', joinedDate: row.joined_date || '',
+        kejuruanId: row.kejuruan_id || undefined, kejuruanName: row.kejuruan_name || undefined,
+        loginCode: row.login_code || undefined,
+      }));
+      res.json({ success: true, users });
+    } catch (error: any) {
+      res.status(500).json({ success: false, message: error.message });
+    }
+  },
+};
+
 export const attendanceController = {
   getAll: async (req: Request, res: Response) => {
     try {
@@ -283,6 +315,14 @@ export const missionController = {
       if (!req.user || !['admin', 'mentor'].includes(req.user.role)) return res.status(403).json({ success: false, message: 'Akses menghapus misi ditolak.' });
       if (req.user.role === 'mentor' && !await mentorCanAccessMission(req.user, req.params.id)) return res.status(403).json({ success: false, message: 'Misi berada di luar kejuruan binaan Anda.' });
       const { id } = req.params;
+      const user = req.user!;
+      if (user.role !== 'admin' && user.role !== 'mentor') return res.status(403).json({ success: false, message: 'Hanya admin atau mentor yang dapat menghapus misi.' });
+      if (user.role === 'mentor') {
+        const [missionRows] = await getPool().query<any[]>('SELECT kejuruan_id FROM missions WHERE id = ? LIMIT 1', [id]);
+        const assignedPrograms = await getKejuruan('mentor', user);
+        const allowedIds = new Set(assignedPrograms.map((program: any) => String(program.id)));
+        if (!missionRows.length || !allowedIds.has(String(missionRows[0].kejuruan_id || ''))) return res.status(403).json({ success: false, message: 'Anda hanya dapat menghapus misi dalam kejuruan bimbingan.' });
+      }
       const result = await deleteMission(id);
       res.json({ success: true, deleted: result.affectedRows > 0 });
     } catch (error: any) {
@@ -295,7 +335,7 @@ export const missionController = {
       if (req.user?.role !== 'trainee') return res.status(403).json({ success: false, message: 'Hanya peserta yang dapat mengumpulkan misi.' });
       req.body.missionId = req.params.id;
       const result = await submitMissionWork(req.body, req.user!);
-      res.json({ success: true, submission: result });
+      res.json({ success: true, message: 'Tugas misi berhasil dikumpulkan.', submission: result });
     } catch (error: any) {
       res.status(400).json({ success: false, message: error.message });
     }
@@ -309,9 +349,8 @@ export const missionController = {
         req.params.id,
         req.body.status,
         req.body.feedback,
-        req.body.awardedPoints,
-        req.user!.role as 'mentor' | 'admin',
-        req.user?.name
+        req.body.awardedPoints ?? req.body.points,
+        req.user
       );
       res.json({ success: true, submission: result });
     } catch (error: any) {
@@ -377,6 +416,7 @@ export const dailyReportController = {
   review: async (req: Request, res: Response) => {
     if (!['mentor', 'admin'].includes(req.user?.role || '')) return res.status(403).json({ success: false, message: 'Hanya mentor atau admin yang dapat meninjau laporan.' });
     try {
+      if (req.user!.role !== 'admin' && req.user!.role !== 'mentor') return res.status(403).json({ success: false, message: 'Hanya admin atau mentor yang dapat mereview laporan.' });
       const result = await reviewDailyReport(
         req.params.id,
         req.body.status,

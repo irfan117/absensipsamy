@@ -33,6 +33,14 @@ const buildExemptDates = async (startDate: string, endDate: string): Promise<Map
   return byUser;
 };
 
+const getMentorProgramIds = async (user: any): Promise<string[]> => {
+  const programs = await getKejuruan('mentor', user);
+  return [...new Set([
+    ...(user.kejuruanId ? [String(user.kejuruanId)] : []),
+    ...programs.map((program: any) => String(program.id)),
+  ])];
+};
+
 // Kejuruan operations
 export const getKejuruan = async (role: 'admin' | 'mentor' | 'trainee', user: any, programNames: string[] = []): Promise<any[]> => {
   const scope = role === 'admin' ? null : role === 'mentor' ? user.kejuruanId || '' : user.id;
@@ -220,6 +228,8 @@ export const getLeaveRequests = async (role: 'admin' | 'mentor' | 'trainee', use
   }
 
   if (role === 'mentor') {
+    const programIds = await getMentorProgramIds(user);
+    if (!programIds.length) return [];
     const [rows] = await getPool().query<any[]>(
       `SELECT l.* FROM leave_requests l LEFT JOIN users u ON u.id = l.user_id
         WHERE l.kejuruan_id IN (SELECT id FROM kejuruan WHERE mentor_id = ? OR id = ?)
@@ -352,6 +362,8 @@ export const getMissions = async (role: 'admin' | 'mentor' | 'trainee', user: an
   }
 
   if (role === 'mentor') {
+    const programIds = await getMentorProgramIds(user);
+    if (!programIds.length) return [];
     const [rows] = await getPool().query<any[]>(
       `SELECT * FROM missions WHERE mentor_id = ?
         OR kejuruan_id IN (SELECT id FROM kejuruan WHERE mentor_id = ? OR id = ?)
@@ -446,6 +458,8 @@ export const getMissionSubmissions = async (role: 'admin' | 'mentor' | 'trainee'
   }
 
   if (role === 'mentor') {
+    const programIds = await getMentorProgramIds(user);
+    if (!programIds.length) return [];
     const [rows] = await getPool().query<any[]>(
       `SELECT s.* FROM mission_submissions s LEFT JOIN missions m ON m.id = s.mission_id
         WHERE s.kejuruan_id IN (SELECT id FROM kejuruan WHERE mentor_id = ? OR id = ?)
@@ -485,7 +499,7 @@ export const submitMissionWork = async (submissionData: any, currentUser: any): 
     kejuruanName: currentUser.kejuruanName || '',
     submissionLink: submissionData.submissionLink,
     notes: submissionData.notes,
-    points: targetMission.points,
+    points: Number(targetMission.points) || 0,
     submittedAt: new Date().toISOString(),
     status: 'pending',
   };
@@ -502,7 +516,7 @@ export const submitMissionWork = async (submissionData: any, currentUser: any): 
   return rows[0] ? mapSubmissionRecord(rows[0]) : mapSubmissionRecord(newSub);
 };
 
-export const reviewMissionSubmission = async (submissionId: string, status: 'approved' | 'rejected', feedback?: string, awardedPoints?: number, userRole?: 'mentor' | 'admin', userName?: string): Promise<any> => {
+export const reviewMissionSubmission = async (submissionId: string, status: 'approved' | 'rejected', feedback?: string, awardedPoints?: number, user?: any): Promise<any> => {
   if (!['approved', 'rejected'].includes(status)) {
     throw new Error('Status review tidak valid.');
   }
@@ -519,14 +533,14 @@ export const reviewMissionSubmission = async (submissionId: string, status: 'app
 
   const [result]: any = await getPool().query(
     `UPDATE mission_submissions SET status = ?, feedback = ?, reviewed_by = ?, reviewed_at = ?, awarded_points = ? WHERE id = ?`,
-    [status, feedbackText, userName || 'Mentor', reviewedAt, awardedPoints || 0, submissionId]
+    [status, feedbackText, user?.name || 'Mentor', reviewedAt, awardedPoints || 0, submissionId]
   );
 
   const [rows] = await getPool().query<any[]>(
     'SELECT * FROM mission_submissions WHERE id = ? LIMIT 1',
     [submissionId]
   );
-  return rows[0] ? mapSubmissionRecord(rows[0]) : mapSubmissionRecord({ ...result, id: submissionId, status, feedback: feedbackText, reviewed_by: userName || 'Mentor', reviewed_at: reviewedAt, awarded_points: awardedPoints || 0 });
+  return rows[0] ? mapSubmissionRecord(rows[0]) : mapSubmissionRecord({ ...result, id: submissionId, status, feedback: feedbackText, reviewed_by: user?.name || 'Mentor', reviewed_at: reviewedAt, awarded_points: awardedPoints || 0 });
 };
 
 // Daily reports operations
@@ -539,6 +553,8 @@ export const getDailyReports = async (role: 'admin' | 'mentor' | 'trainee', user
   }
 
   if (role === 'mentor') {
+    const programIds = await getMentorProgramIds(user);
+    if (!programIds.length) return [];
     const [rows] = await getPool().query<any[]>(
       `SELECT r.* FROM daily_reports r LEFT JOIN users u ON u.id = r.trainee_id
         WHERE r.kejuruan_id IN (SELECT id FROM kejuruan WHERE mentor_id = ? OR id = ?)

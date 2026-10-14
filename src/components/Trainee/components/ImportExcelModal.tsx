@@ -48,7 +48,7 @@ export const ImportExcelModal: React.FC<ImportExcelModalProps> = ({
         {/* Template & Target Role Bar */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 bg-sky-50/70 border border-sky-100 rounded-2xl">
           <div className="text-xs text-sky-900">
-            <span className="font-bold">Belum punya format file?</span> Unduh template resmi kami untuk menghindari error.
+            <span className="font-bold">Belum punya format file?</span> Unduh template resmi kami untuk menghindari error. Nama kejuruan baru pada file akan otomatis masuk ke katalog.
           </div>
           <button
             type="button"

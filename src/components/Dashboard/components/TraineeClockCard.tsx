@@ -7,6 +7,7 @@ interface TraineeClockCardProps {
   lateLimitTime: string;
   isCheckedIn: boolean;
   isCheckedOut: boolean;
+  isLeaveApproved?: boolean;
   checkInTime?: string;
   checkOutTime?: string;
   dailyNote: string;
@@ -25,6 +26,7 @@ export const TraineeClockCard: React.FC<TraineeClockCardProps> = ({
   lateLimitTime,
   isCheckedIn,
   isCheckedOut,
+  isLeaveApproved = false,
   checkInTime,
   checkOutTime,
   dailyNote,
@@ -51,8 +53,9 @@ export const TraineeClockCard: React.FC<TraineeClockCardProps> = ({
         <div className="flex items-center gap-2 bg-[#F8FAFB] p-1.5 rounded-2xl border border-[#E4EAF0]">
           <button
             type="button"
-            onClick={() => setWorkMode('WFO')}
-            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition ${
+            onClick={() => !isCheckedIn && setWorkMode('WFO')}
+            disabled={isCheckedIn}
+            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition disabled:opacity-60 disabled:cursor-not-allowed ${
               workMode === 'WFO'
                 ? 'bg-[#123B59] text-white shadow-2xs'
                 : 'text-[#6F7F8D] hover:text-[#123B59]'
@@ -62,8 +65,9 @@ export const TraineeClockCard: React.FC<TraineeClockCardProps> = ({
           </button>
           <button
             type="button"
-            onClick={() => setWorkMode('WFH')}
-            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition ${
+            onClick={() => !isCheckedIn && setWorkMode('WFH')}
+            disabled={isCheckedIn}
+            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition disabled:opacity-60 disabled:cursor-not-allowed ${
               workMode === 'WFH'
                 ? 'bg-[#123B59] text-white shadow-2xs'
                 : 'text-[#6F7F8D] hover:text-[#123B59]'
@@ -83,6 +87,13 @@ export const TraineeClockCard: React.FC<TraineeClockCardProps> = ({
               Absen masuk sekarang akan dicatat sebagai <strong>Terlambat</strong> dan dapat memotong poin presensi.
             </p>
           </div>
+        </div>
+      )}
+
+      {isLeaveApproved && (
+        <div className="p-3.5 rounded-2xl bg-sky-50 border border-sky-200 text-sky-800 text-xs flex items-start gap-2.5">
+          <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5 text-sky-600" />
+          <p>Izin atau sakit Anda telah disetujui untuk hari ini. Presensi dinonaktifkan.</p>
         </div>
       )}
 
@@ -109,7 +120,7 @@ export const TraineeClockCard: React.FC<TraineeClockCardProps> = ({
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
         <button
           type="button"
-          disabled={isCheckedIn || isLocating}
+          disabled={isCheckedIn || isLocating || isLeaveApproved}
           onClick={onClockIn}
           className={`p-4 rounded-2xl border text-xs font-bold transition flex items-center justify-between ${
             isCheckedIn
@@ -130,7 +141,7 @@ export const TraineeClockCard: React.FC<TraineeClockCardProps> = ({
 
         <button
           type="button"
-          disabled={!isCheckedIn || isCheckedOut || isLocating}
+          disabled={!isCheckedIn || isCheckedOut || isLocating || isLeaveApproved}
           onClick={onClockOut}
           className={`p-4 rounded-2xl border text-xs font-bold transition flex items-center justify-between ${
             isCheckedOut

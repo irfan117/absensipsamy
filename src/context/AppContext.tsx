@@ -41,6 +41,7 @@ interface AppContextType {
   deleteTraineesByIds: (ids: string[]) => Promise<{ success: boolean; message: string }>;
   importUsers: (users: Partial<User>[]) => Promise<{ success: boolean; count?: number; message: string }>;
   regenerateUserCredentials: (userId: string) => Promise<{ success: boolean; loginCode: string; password: string; message?: string }>;
+  updateMyKejuruan: (kejuruanId: string) => Promise<{ success: boolean; message: string }>;
   refreshUsers: () => Promise<void>;
   refreshKejuruan: () => Promise<void>;
   addKejuruan: (kjData: Omit<Kejuruan, 'id'>) => Promise<{ success: boolean; message: string }>;
@@ -321,7 +322,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const logout = () => {
-    api.setToken(null);
+    void api.logoutSession();
     setJwtToken(null);
     setCurrentUser(null);
     setUsers([]);
@@ -436,6 +437,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return { success: true, message: 'Program kejuruan berhasil diperbarui.' };
     } catch (error: any) {
       return { success: false, message: error?.message || 'Gagal memperbarui kejuruan.' };
+    }
+  };
+
+  const updateMyKejuruan = async (kejuruanId: string) => {
+    try {
+      const res = await api.updateMyKejuruan(kejuruanId);
+      if (res.success && currentUser?.role === 'mentor') {
+        setCurrentUser({ ...currentUser, kejuruanId: res.kejuruanId, kejuruanName: res.kejuruanName });
+        setUsers((prev) => prev.map((user) => user.id === currentUser.id
+          ? { ...user, kejuruanId: res.kejuruanId, kejuruanName: res.kejuruanName }
+          : user));
+      }
+      return { success: res.success, message: res.message };
+    } catch (error: any) {
+      return { success: false, message: error?.message || 'Gagal memperbarui kejuruan profil.' };
     }
   };
 
@@ -593,8 +609,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (!targetMission) return { success: false, message: 'Misi tidak ditemukan.' };
     try {
       const res = await api.submitMissionWork(submissionData);
-      if (res.success && res.submission) {
-        setMissionSubmissions(prev => [res.submission, ...prev.filter(item => item.id !== res.submission.id)]);
+      const submission = res.submission;
+      if (res.success && submission) {
+        setMissionSubmissions(prev => [submission, ...prev.filter(item => item.id !== submission.id)]);
         return { success: true, message: res.message || 'Tugas misi berhasil dikumpulkan.' };
       }
       return { success: false, message: res.message || 'Gagal mengumpulkan tugas misi.' };
@@ -691,6 +708,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const clockIn = async (notes?: string, photoUrl?: string, coordinates?: { lat: number; lng: number }, workMode: 'WFO' | 'WFH' = 'WFO') => {
     if (!currentUser) return { success: false, message: 'User tidak ditemukan.' };
+    if (currentUser.role !== 'trainee') return { success: false, message: 'Aksi ini hanya tersedia untuk peserta.' };
+    if (attendanceRecords.some((record) => record.userId === currentUser.id && record.date === getTodayDateString() && record.checkInTime)) return { success: false, message: 'Anda sudah melakukan Check-In hari ini.' };
+    if (!coordinates || !Number.isFinite(coordinates.lat) || !Number.isFinite(coordinates.lng)) return { success: false, message: 'Lokasi GPS diperlukan untuk melakukan presensi.' };
+    if (workMode === 'WFO') {
+      const { lat, lng, radiusMeters } = settings.officeLocation;
+      const rad = (n: number) => n * Math.PI / 180;
+      const a = Math.sin(rad(coordinates.lat - lat) / 2) ** 2 + Math.cos(rad(lat)) * Math.cos(rad(coordinates.lat)) * Math.sin(rad(coordinates.lng - lng) / 2) ** 2;
+      if (6371000 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)) > radiusMeters) return { success: false, message: `Anda berada di luar radius kantor (${radiusMeters} m).` };
+    }
     try {
       const date = getTodayDateString();
       const existing = attendanceRecords.find(record => record.userId === currentUser.id && record.date === date);
@@ -704,7 +730,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         userId: currentUser.id, userName: currentUser.name, userNim: currentUser.nim,
         userRole: currentUser.role, kejuruanId: currentUser.kejuruanId || '',
         kejuruanName: currentUser.kejuruanName || '', date, checkInTime,
-        status, verificationStatus: currentUser.role === 'admin' ? 'verified' : 'pending',
+        status, verificationStatus: 'pending',
         workMode, coordinates, photoUrl, notes,
       };
       const res = await api.saveAttendanceRecord(record);
@@ -721,6 +747,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const clockOut = async (notes?: string, coordinates?: { lat: number; lng: number }) => {
     if (!currentUser) return { success: false, message: 'User tidak ditemukan.' };
+    const record = attendanceRecords.find((item) => item.userId === currentUser.id && item.date === getTodayDateString());
+    if (!record?.checkInTime) return { success: false, message: 'Anda belum melakukan Check-In hari ini.' };
+    if (record.checkOutTime) return { success: false, message: 'Anda sudah melakukan Check-Out hari ini.' };
+    if (!coordinates) return { success: false, message: 'Lokasi GPS diperlukan untuk melakukan presensi keluar.' };
+    if (record.workMode !== 'WFH') {
+      const { lat, lng, radiusMeters } = settings.officeLocation;
+      const rad = (n: number) => n * Math.PI / 180;
+      const a = Math.sin(rad(coordinates.lat - lat) / 2) ** 2 + Math.cos(rad(lat)) * Math.cos(rad(coordinates.lat)) * Math.sin(rad(coordinates.lng - lng) / 2) ** 2;
+      if (6371000 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)) > radiusMeters) return { success: false, message: `Anda berada di luar radius kantor (${radiusMeters} m).` };
+    }
     try {
       const date = getTodayDateString();
       const existing = attendanceRecords.find(record => record.userId === currentUser.id && record.date === date);
@@ -765,6 +801,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         deleteTraineesByIds,
         importUsers,
         regenerateUserCredentials,
+        updateMyKejuruan,
         refreshUsers,
         refreshKejuruan,
         addKejuruan,

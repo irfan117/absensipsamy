@@ -120,7 +120,7 @@ export const SubmitWorkModal: React.FC<SubmitWorkModalProps> = ({
             className="px-5 py-2.5 rounded-xl bg-[#2E7D32] hover:bg-[#256628] text-white text-xs font-bold transition flex items-center gap-1.5 shadow-2xs"
           >
             <Send className="w-3.5 h-3.5" />
-            <span>Kirim Tugas</span>
+            <span>{isSubmitting ? 'Mengirim...' : 'Kirim Tugas'}</span>
           </button>
         </div>
       </form>

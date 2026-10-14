@@ -24,14 +24,6 @@ function readEightDigitValue(value: unknown): string {
   return value == null ? '' : String(value).trim();
 }
 
-function importedKejuruanId(programName: string): string {
-  let hash = 2166136261;
-  for (const char of programName.trim().toLowerCase()) {
-    hash = Math.imul(hash ^ char.charCodeAt(0), 16777619);
-  }
-  return `kj-import-${(hash >>> 0).toString(36)}`;
-}
-
 /**
  * Export Trainees, Mentors, or All Users to Excel format (.xlsx)
  */
@@ -294,10 +286,11 @@ export async function parseUsersFromExcelFile(
           name: rawName,
           nim: rawIdentifier,
           role: finalRole,
-          kejuruanId: programValue ? (targetKj?.id || importedKejuruanId(programValue)) : undefined,
-          kejuruanName: programValue
-            ? (targetKj?.subPrograms?.find(name => name.toLowerCase() === programValue.toLowerCase()) || targetKj?.name || programValue)
-            : undefined,
+          kejuruanId: targetKj?.id,
+          // The database stores the canonical parent program on user records;
+          // a subprogram name is only an Excel label and cannot be resolved as a
+          // kejuruan row by the API.
+          kejuruanName: programValue ? (targetKj?.name || programValue) : undefined,
           loginCode: rawCode,
           password: rawPass,
           phone: '',
