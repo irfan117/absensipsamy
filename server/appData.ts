@@ -301,7 +301,7 @@ appDataRouter.get('/hall-of-fame/trainees', authenticateToken, async (req: Authe
     const absentPointPenaltyPerDay = normalizeAbsentPointPenaltyPerDay(setting?.absent_point_penalty_per_day);
 
     const [rows] = await pool.query<any[]>(`
-        SELECT u.id, u.nim, u.name, u.avatar, u.kejuruan_id, u.kejuruan_name, u.joined_date,
+        SELECT u.id, u.login_code AS nim, u.name, u.avatar, u.kejuruan_id, u.kejuruan_name, u.joined_date,
                COALESCE(submission_stats.completed_missions_count, 0) AS completed_missions_count,
                COALESCE(submission_stats.total_points, 0) AS approved_points,
                COALESCE(late_penalties.total_penalty, 0) AS total_late_penalty
@@ -369,7 +369,7 @@ appDataRouter.get('/hall-of-fame/mentors', authenticateToken, async (req: Authen
   try {
     const mentorScope = req.user.role === 'mentor' ? 'AND mentor.id = ?' : '';
     const [rows] = await getPool().query<any[]>(`
-      SELECT mentor.id, mentor.nim, mentor.name, mentor.kejuruan_name,
+      SELECT mentor.id, mentor.login_code AS nim, mentor.name, mentor.kejuruan_name,
              COUNT(DISTINCT CASE WHEN submission.status = 'approved' THEN submission.id END) AS completed_missions_count,
              COALESCE(SUM(
                CASE WHEN submission.status = 'approved'
@@ -387,7 +387,7 @@ appDataRouter.get('/hall-of-fame/mentors', authenticateToken, async (req: Authen
         GROUP BY kejuruan_id
       ) trainee_counts ON trainee_counts.kejuruan_id = mission.kejuruan_id
       WHERE mentor.role = 'mentor' ${mentorScope}
-      GROUP BY mentor.id, mentor.nim, mentor.name, mentor.kejuruan_name
+      GROUP BY mentor.id, mentor.login_code, mentor.name, mentor.kejuruan_name
       ORDER BY total_points DESC, completed_missions_count DESC, mentor.name ASC
     `, req.user.role === 'mentor' ? [req.user.id] : []);
 
@@ -534,7 +534,7 @@ appDataRouter.put('/attendance', authenticateToken, async (req: AuthenticatedReq
     }
     const pool = getPool();
     const [targetRows] = await pool.query<any[]>(
-      'SELECT id,name,nim,role,kejuruan_id,kejuruan_name FROM users WHERE id = ? LIMIT 1',
+      'SELECT id,name,login_code AS nim,role,kejuruan_id,kejuruan_name FROM users WHERE id = ? LIMIT 1',
       [targetUserId]
     );
     const target = targetRows[0];

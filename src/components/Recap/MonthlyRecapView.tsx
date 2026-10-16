@@ -24,6 +24,8 @@ import { getKejuruanFilterOptions } from '../../utils/kejuruanCodes';
 export const MonthlyRecapView: React.FC = () => {
   const { users, kejuruanList, attendanceRecords, currentUser, dailyReports, setActiveTab, resetAttendanceRecords } = useApp();
 
+  if (!currentUser) return null;
+
   const isTrainee = currentUser.role === 'trainee';
   const isMentor = currentUser.role === 'mentor';
   const mentorKejuruanIds = getMentorKejuruanIds(currentUser, kejuruanList);

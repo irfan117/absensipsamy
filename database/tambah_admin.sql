@@ -18,22 +18,16 @@
 -- ─────────────────────────────────────────────
 INSERT INTO users (
   id,
-  nim,
   name,
-  email,
   role,
-  phone,
   status,
   joined_date,
   login_code,
   password_hash
 ) VALUES (
   'user-admin-1',           -- ID unik (ganti jika sudah ada)
-  '10101010',               -- NIM / kode identitas admin
   'Abdul Rozzak Junaidi', -- Nama lengkap
-  '10101010@hadirku.id',    -- Email (dipakai untuk login Tab Administrator)
   'admin',
-  '0812-3456-7890',
   'active',
   '2026-01-10',
   '10101010',               -- Kode login 8 digit (dipakai di Tab Kode/NIM)
@@ -51,7 +45,7 @@ ON DUPLICATE KEY UPDATE
 --   Ganti hash di bawah dengan hasil generate Anda sendiri!
 -- ─────────────────────────────────────────────
 -- INSERT INTO users (
---   id, nim, name, email, role, phone, status, joined_date, login_code, password_hash
+--   id, name, role, status, joined_date, login_code, password_hash
 -- ) VALUES (
 --   'user-admin-2',
 --   'ADM-2026-002',
@@ -70,11 +64,11 @@ ON DUPLICATE KEY UPDATE
 -- ─────────────────────────────────────────────
 -- CEK: Lihat semua user yang ada di database
 -- ─────────────────────────────────────────────
--- SELECT id, nim, name, email, role, login_code, status FROM absensi_db.users ORDER BY role;
+-- SELECT id, nim, name, role, login_code, status FROM absensi_db.users ORDER BY role;
 
 -- ─────────────────────────────────────────────
 -- RESET PASSWORD admin (ganti hash sesuai password baru):
 -- ─────────────────────────────────────────────
 -- UPDATE absensi_db.users
 -- SET password_hash = '$2b$10$HASH_BARU_DI_SINI'
--- WHERE email = 'admin@hadirku.id';
+-- WHERE login_code = '10101010';

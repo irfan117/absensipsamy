@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { AttendanceSettings } from '../types';
 import { api } from '../services/api';
+import { INITIAL_SETTINGS } from '../data/mockData';
 import { useAuth } from './AuthContext';
 
 interface SettingsContextType {
@@ -15,13 +16,7 @@ const SettingsContext = createContext<SettingsContextType | undefined>(undefined
 
 export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { jwtToken } = useAuth();
-  const [settings, setSettings] = useState<AttendanceSettings>({
-    lateLimitTime: '09:00',
-    latePointPenaltyPerMinute: 1,
-    absentPointPenaltyPerDay: 2,
-    enableGPSVerification: true,
-    enablePhotoVerification: true,
-  });
+  const [settings, setSettings] = useState<AttendanceSettings>(INITIAL_SETTINGS);
   const [tidbStatus, setTidbStatus] = useState<'connected' | 'connecting' | 'error' | 'offline'>('connected');
 
   const refreshSettings = async () => {
@@ -46,9 +41,10 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const updateSettings = async (newSettings: Partial<AttendanceSettings>) => {
     if (!jwtToken) return { success: false, message: 'User tidak terautentikasi.' };
     try {
-      const res = await api.updateSettings(newSettings);
+      const merged = { ...settings, ...newSettings } as AttendanceSettings;
+      const res = await api.saveAttendanceSettings(merged);
       if (res.success) {
-        setSettings({ ...settings, ...newSettings });
+        setSettings(merged);
       }
       return res;
     } catch (err) {
@@ -57,21 +53,15 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   };
 
   const resetToDefaultData = async () => {
-    if (!jwtToken) return { success: false, message: 'User tidak terautentikasi.' };
+    if (!jwtToken) return { success: false, count: 0, message: 'User tidak terautentikasi.' };
     try {
-      const res = await api.resetToDefaultData();
+      const res = await api.resetToDefaultData(INITIAL_SETTINGS);
       if (res.success) {
-        setSettings({
-          lateLimitTime: '09:00',
-          latePointPenaltyPerMinute: 1,
-          absentPointPenaltyPerDay: 2,
-          enableGPSVerification: true,
-          enablePhotoVerification: true,
-        });
+        setSettings(INITIAL_SETTINGS);
       }
       return res;
     } catch (err) {
-      return { success: false, message: 'Gagal mereset pengaturan.' };
+      return { success: false, count: 0, message: 'Gagal mereset pengaturan.' };
     }
   };
 

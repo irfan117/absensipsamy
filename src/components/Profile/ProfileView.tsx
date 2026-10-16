@@ -7,6 +7,8 @@ import { UserRound, LockKeyhole, CheckCircle2, BadgeCheck } from 'lucide-react';
 export const ProfileView: React.FC = () => {
   const { currentUser, kejuruanList, changePassword, updateMyAvatar, updateMyKejuruan } = useApp();
 
+  if (!currentUser) return null;
+
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');

@@ -1,8 +1,20 @@
+import fs from 'fs';
 import mysql from 'mysql2/promise';
 import dotenv from 'dotenv';
 import { computeLatePenalty, normalizeLatePointPenaltyPerMinute } from './latePenalty.js';
 
 dotenv.config();
+
+function isCloudDatabase(host: string, port: number): boolean {
+  return /tidbcloud|aws|google|azure|cloud/i.test(host) || port === 4000;
+}
+
+function shouldUseSsl(host: string, port: number): boolean {
+  if (process.env.TIDB_SSL !== undefined) {
+    return process.env.TIDB_SSL === 'true';
+  }
+  return isCloudDatabase(host, port);
+}
 
 export function describeDatabaseConfig(): { ok: boolean; missing: string[] } {
   const splitConfigKeys = [
@@ -15,8 +27,12 @@ export function describeDatabaseConfig(): { ok: boolean; missing: string[] } {
   const hasSplitConfig = splitConfigKeys.some(key => process.env[key]);
 
   if (hasSplitConfig) {
-    const missing = ['TIDB_HOST', 'TIDB_USER', 'TIDB_PASSWORD']
-      .filter(key => !process.env[key]);
+    const host = process.env.TIDB_HOST || '';
+    const port = Number(process.env.TIDB_PORT || 3306);
+    const requiredKeys = isCloudDatabase(host, port)
+      ? ['TIDB_HOST', 'TIDB_USER', 'TIDB_PASSWORD']
+      : ['TIDB_HOST', 'TIDB_USER'];
+    const missing = requiredKeys.filter(key => !process.env[key]);
     return { ok: missing.length === 0, missing };
   }
 
@@ -24,7 +40,7 @@ export function describeDatabaseConfig(): { ok: boolean; missing: string[] } {
     return { ok: true, missing: [] };
   }
 
-  return { ok: false, missing: ['TIDB_HOST', 'TIDB_USER', 'TIDB_PASSWORD'] };
+  return { ok: false, missing: ['TIDB_HOST', 'TIDB_USER'] };
 }
 
 export async function pingDatabase(): Promise<{ ok: boolean; error?: string }> {
@@ -52,21 +68,28 @@ function getDbConfig() {
   let user: string;
   let password: string;
   let database: string;
+  let socketPath: string | undefined;
 
   if (hasSplitConfig) {
-    const missing = ['TIDB_HOST', 'TIDB_USER', 'TIDB_PASSWORD']
-      .filter(key => !process.env[key]);
+    const configuredHost = process.env.TIDB_HOST || '';
+    const configuredPort = Number(process.env.TIDB_PORT || 3306);
+    const requiredKeys = isCloudDatabase(configuredHost, configuredPort)
+      ? ['TIDB_HOST', 'TIDB_USER', 'TIDB_PASSWORD']
+      : ['TIDB_HOST', 'TIDB_USER'];
+    const missing = requiredKeys.filter(key => !process.env[key]);
     if (missing.length) {
-      throw new Error(`Konfigurasi TiDB belum lengkap. Variabel wajib: ${missing.join(', ')}.`);
+      throw new Error(`Konfigurasi database belum lengkap. Variabel wajib: ${missing.join(', ')}.`);
     }
 
     host = process.env.TIDB_HOST!;
-    port = Number(process.env.TIDB_PORT || 4000);
+    port = Number(process.env.TIDB_PORT || 3306);
+    const rawSocketPath = process.env.TIDB_SOCKET_PATH;
+    socketPath = (rawSocketPath && fs.existsSync(rawSocketPath)) ? rawSocketPath : undefined;
     user = process.env.TIDB_USER!;
-    password = process.env.TIDB_PASSWORD!;
+    password = process.env.TIDB_PASSWORD || '';
     database = process.env.TIDB_DATABASE || 'absensi_db';
     if (!Number.isInteger(port) || port < 1 || port > 65535) {
-      throw new Error('TIDB_PORT harus berupa nomor port yang valid.');
+      throw new Error('Port database harus berupa nomor port yang valid.');
     }
   } else {
     // Keep DATABASE_URL support for existing deployments. Reserved characters
@@ -74,7 +97,8 @@ function getDbConfig() {
     const url = new URL(process.env.DATABASE_URL || 'mysql://localhost:3306/test');
     const dbName = url.pathname.replace(/^\//, '');
     host = url.hostname;
-    port = parseInt(url.port || '4000', 10);
+    port = parseInt(url.port || '3306', 10);
+    socketPath = undefined;
     user = decodeURIComponent(url.username);
     password = decodeURIComponent(url.password);
     database = dbName && dbName !== 'sys' ? dbName : 'absensi_db';
@@ -86,10 +110,11 @@ function getDbConfig() {
     user,
     password,
     database,
-    ssl: {
+    socketPath,
+    ssl: !socketPath && shouldUseSsl(host, port) ? {
       minVersion: 'TLSv1.2',
       rejectUnauthorized: true,
-    },
+    } : undefined,
     waitForConnections: true,
     connectionLimit: process.env.VERCEL === '1' ? 1 : 10,
     queueLimit: 0,
@@ -111,12 +136,9 @@ export function getPool(): mysql.Pool {
 
 export interface DbUser {
   id: string;
-  nim: string;
   name: string;
-  email: string;
   role: 'admin' | 'mentor' | 'trainee';
   avatar: string;
-  phone: string;
   kejuruan_id?: string;
   kejuruan_name?: string;
   status: 'active' | 'inactive';
@@ -195,12 +217,9 @@ export async function initDatabase() {
     `
     CREATE TABLE IF NOT EXISTS users (
       id VARCHAR(64) PRIMARY KEY,
-      nim CHAR(8) NOT NULL UNIQUE,
       name VARCHAR(128) NOT NULL,
-      email VARCHAR(128) NOT NULL UNIQUE,
       role ENUM('admin', 'mentor', 'trainee') NOT NULL,
       avatar TEXT,
-      phone VARCHAR(32),
       kejuruan_id VARCHAR(64),
       kejuruan_name VARCHAR(255),
       status ENUM('active', 'inactive') DEFAULT 'active',
@@ -298,6 +317,7 @@ export async function initDatabase() {
       office_location JSON NOT NULL,
       late_point_penalty_per_minute INT NOT NULL DEFAULT 1,
       absent_point_penalty_per_day INT NOT NULL DEFAULT 1,
+      penalty_start_date DATE DEFAULT '2026-10-01',
       updated_by VARCHAR(64),
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -450,6 +470,16 @@ export async function initDatabase() {
   );
   if (absentPenaltyRateColumns.length === 0) {
     await p.query('ALTER TABLE attendance_settings ADD COLUMN absent_point_penalty_per_day INT NOT NULL DEFAULT 1 AFTER late_point_penalty_per_minute');
+  }
+
+  // Tanggal mulai penalti tidak hadir untuk Hall of Fame (default 2026-10-01)
+  const [penaltyStartDateColumns] = await p.query<any[]>(
+    `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
+     WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'attendance_settings' AND COLUMN_NAME = 'penalty_start_date'`,
+    [database]
+  );
+  if (penaltyStartDateColumns.length === 0) {
+    await p.query("ALTER TABLE attendance_settings ADD COLUMN penalty_start_date DATE DEFAULT '2026-10-01' AFTER absent_point_penalty_per_day");
   }
 
   // Riwayat keterlambatan lama harus ikut terpotong saat fitur ini diaktifkan,

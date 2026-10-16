@@ -52,7 +52,6 @@ export const AddUserModal: React.FC<AddUserModalProps> = ({
       role,
       password,
       avatar: '',
-      phone: '',
       status: 'active',
       joinedDate: new Date().toISOString(),
     });
@@ -119,7 +118,7 @@ export const AddUserModal: React.FC<AddUserModalProps> = ({
 
         <div>
           <label className="block text-xs font-bold text-[#123B59] mb-1">
-            NIM / No. Identitas (Opsional)
+            Kode Login (Opsional)
           </label>
           <input
             type="text"

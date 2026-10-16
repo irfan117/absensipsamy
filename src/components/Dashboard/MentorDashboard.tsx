@@ -24,6 +24,8 @@ export const MentorDashboard: React.FC = () => {
     manualAddOrUpdateAttendance,
   } = useApp();
 
+  if (!currentUser) return null;
+
   const today = getTodayDateString();
   const [currentYear, currentMonth] = today.split('-').map(Number);
   const [toastMessage, setToastMessage] = useState<string | null>(null);

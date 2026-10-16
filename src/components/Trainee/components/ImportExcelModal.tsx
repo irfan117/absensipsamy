@@ -153,7 +153,7 @@ export const ImportExcelModal: React.FC<ImportExcelModalProps> = ({
                 <thead className="bg-[#F8FAFB] sticky top-0 border-b border-[#E4EAF0] text-[#6F7F8D]">
                   <tr>
                     <th className="py-1.5 px-2">Nama</th>
-                    <th className="py-1.5 px-2">NIM / Kode</th>
+                    <th className="py-1.5 px-2">Kode Login</th>
                     <th className="py-1.5 px-2">Peran</th>
                     <th className="py-1.5 px-2">Kejuruan</th>
                   </tr>

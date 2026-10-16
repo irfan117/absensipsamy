@@ -13,7 +13,7 @@ interface UserContextType {
   deleteUser: (userId: string) => Promise<{ success: boolean; message: string }>;
   deleteUsersByRole: (roleTarget: 'trainee' | 'mentor' | 'all') => Promise<{ success: boolean; message: string }>;
   deleteTraineesByIds: (ids: string[]) => Promise<{ success: boolean; message: string }>;
-  addKejuruan: (kjData: Omit<Kejuruan, 'id'>) => void;
+  addKejuruan: (kjData: Omit<Kejuruan, 'id'>) => Promise<void>;
   importUsers: (usersToImport: Partial<User>[]) => Promise<{ success: boolean; count?: number; message: string }>;
   regenerateUserCredentials: (userId: string) => Promise<{ loginCode: string; password: string; success: boolean; message?: string }>;
 }
@@ -109,9 +109,16 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const addKejuruan = (kjData: Omit<Kejuruan, 'id'>) => {
-    const newKj: Kejuruan = { ...kjData, id: `kj-${Date.now()}` };
-    setKejuruanList((prev) => [...prev, newKj]);
+  const addKejuruan = async (kjData: Omit<Kejuruan, 'id'>) => {
+    try {
+      const res = await api.createKejuruan(kjData);
+      const created = res.kejuruan || res.data;
+      if (res.success && created) {
+        setKejuruanList((prev) => [...prev.filter((item) => item.id !== created.id), created]);
+      }
+    } catch (err) {
+      console.warn('API createKejuruan failed:', err);
+    }
   };
 
   const importUsers = async (usersToImport: Partial<User>[]) => {
@@ -130,13 +137,13 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       const res = await api.regenerateUserCredentials(userId);
       if (res.success) {
-        setUsers((prev =>
+        setUsers((prev) =>
           prev.map((u) =>
             u.id === userId
               ? { ...u, loginCode: res.loginCode, password: res.password, plainPassword: res.password }
               : u
           )
-        ));
+        );
       }
       return res;
     } catch {

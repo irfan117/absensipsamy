@@ -46,6 +46,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
     dailyReports,
     logout
   } = useApp();
+
+  if (!currentUser) return null;
+
   const { preference, resolvedTheme, setPreference } = useTheme();
   const [themeMenuOpen, setThemeMenuOpen] = useState(false);
 

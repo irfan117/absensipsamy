@@ -1,8 +1,9 @@
 import 'dotenv/config';
-import { getPool, initDatabase } from './db.js';
+import { ensureDatabaseExists, getPool, initDatabase } from './db.js';
 
 async function main() {
   try {
+    await ensureDatabaseExists();
     await initDatabase();
   } finally {
     await getPool().end();

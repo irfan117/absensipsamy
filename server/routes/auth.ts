@@ -6,19 +6,18 @@ import { authenticateToken, comparePassword, generateToken, AuthenticatedRequest
 const router = Router();
 
 function normalizeUserRow(row: any) {
+  const loginCode = row.login_code || row.loginCode || row.nim || '';
   return {
     id: String(row.id),
-    nim: String(row.nim || ''),
+    nim: String(loginCode),
     name: String(row.name || ''),
-    email: String(row.email || ''),
     role: row.role,
     avatar: row.avatar || '',
-    phone: row.phone || '',
     status: row.status || 'active',
     joinedDate: row.joined_date || '',
     kejuruanId: row.kejuruan_id || undefined,
     kejuruanName: row.kejuruan_name || undefined,
-    loginCode: row.login_code || undefined,
+    loginCode: String(loginCode || ''),
   };
 }
 
@@ -35,8 +34,8 @@ router.post('/login', async (req: Request, res: Response) => {
     }
 
     const [rows] = await getPool().query<any[]>(
-      'SELECT * FROM users WHERE nim = ? OR login_code = ? OR email = ? LIMIT 1',
-      [code, code, code]
+      'SELECT * FROM users WHERE login_code = ? LIMIT 1',
+      [code]
     );
 
     const userRow = rows?.[0];
@@ -85,7 +84,7 @@ router.post('/login', async (req: Request, res: Response) => {
 router.get('/me', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const [rows] = await getPool().query<any[]>(
-      'SELECT id, nim, name, email, role, avatar, phone, status, joined_date, kejuruan_id, kejuruan_name, login_code FROM users WHERE id = ? LIMIT 1',
+      'SELECT id, name, role, avatar, status, joined_date, kejuruan_id, kejuruan_name, login_code FROM users WHERE id = ? LIMIT 1',
       [req.user?.id]
     );
 
@@ -110,15 +109,42 @@ router.put('/kejuruan', authenticateToken, async (req: AuthenticatedRequest, res
     if (req.user?.role !== 'mentor') {
       return res.status(403).json({ success: false, message: 'Pengaturan kejuruan ini hanya untuk mentor.' });
     }
+
     const kejuruanId = String(req.body?.kejuruanId ?? '').trim();
-    const [programs] = await getPool().query<any[]>(
-      'SELECT id, name FROM kejuruan WHERE id = ? LIMIT 1', [kejuruanId]
+    const pool = getPool();
+    const [programs] = await pool.query<any[]>(
+      'SELECT id, name, mentor_id, mentor_name FROM kejuruan WHERE id = ? LIMIT 1',
+      [kejuruanId]
     );
+
     if (!programs?.[0]) {
       return res.status(400).json({ success: false, message: 'Pilih kejuruan yang valid.' });
     }
-    await getPool().query('UPDATE users SET kejuruan_id = ?, kejuruan_name = ? WHERE id = ?', [programs[0].id, programs[0].name, req.user.id]);
-    return res.json({ success: true, message: 'Kejuruan profil berhasil diperbarui.', kejuruanId: String(programs[0].id), kejuruanName: String(programs[0].name) });
+
+    const program = programs[0];
+    if (program.mentor_id && String(program.mentor_id) !== String(req.user.id)) {
+      return res.status(403).json({
+        success: false,
+        message: 'Kejuruan ini sudah terikat ke mentor lain. Pilih kejuruan yang sesuai dengan mentor Anda.',
+      });
+    }
+
+    await pool.query(
+      'UPDATE kejuruan SET mentor_id = ?, mentor_name = ? WHERE id = ?',
+      [req.user.id, req.user.name, program.id]
+    );
+
+    await pool.query(
+      'UPDATE users SET kejuruan_id = ?, kejuruan_name = ? WHERE id = ?',
+      [program.id, program.name, req.user.id]
+    );
+
+    return res.json({
+      success: true,
+      message: 'Kejuruan profil berhasil diperbarui.',
+      kejuruanId: String(program.id),
+      kejuruanName: String(program.name),
+    });
   } catch (error: any) {
     return res.status(500).json({ success: false, message: error?.message || 'Gagal memperbarui kejuruan profil.' });
   }

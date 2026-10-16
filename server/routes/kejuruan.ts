@@ -8,6 +8,7 @@ router.use(authenticateToken);
 router.get('/', kejuruanController.getAll);
 router.post('/', kejuruanController.create);
 router.patch('/:id', kejuruanController.update);
+router.put('/:id', kejuruanController.update);
 router.delete('/:id', kejuruanController.delete);
 
 export default router;

@@ -196,11 +196,34 @@ export const api = {
     });
   },
 
-  async saveAttendanceSettings(settings: AttendanceSettings): Promise<{ success: boolean; message: string }> {
-    return this.request<{ success: boolean; message: string }>('/api/app-data/settings', {
+  async saveAttendanceSettings(settings: AttendanceSettings): Promise<{ success: boolean; message: string; settings?: AttendanceSettings }> {
+    return this.request<{ success: boolean; message: string; settings?: AttendanceSettings }>('/api/settings', {
       method: 'PUT',
       body: JSON.stringify(settings),
     });
+  },
+
+  async updateSettings(settings: AttendanceSettings | Partial<AttendanceSettings>): Promise<{ success: boolean; message: string; settings?: AttendanceSettings }> {
+    return this.request<{ success: boolean; message: string; settings?: AttendanceSettings }>('/api/settings', {
+      method: 'PUT',
+      body: JSON.stringify(settings),
+    });
+  },
+
+  async getSettings(): Promise<{ success: boolean; settings: AttendanceSettings }> {
+    return this.request<{ success: boolean; settings: AttendanceSettings }>('/api/settings');
+  },
+
+  async resetToDefaultData(settings: AttendanceSettings): Promise<{ success: boolean; count: number; message: string }> {
+    const res = await this.request<{ success: boolean; message: string; settings?: AttendanceSettings }>('/api/settings', {
+      method: 'PUT',
+      body: JSON.stringify(settings),
+    });
+    return {
+      success: res.success,
+      count: res.success ? 1 : 0,
+      message: res.message || (res.success ? 'Pengaturan default berhasil direset.' : 'Gagal mereset pengaturan.'),
+    };
   },
 
   async saveAttendanceRecord(record: AttendanceRecord): Promise<{ success: boolean; message: string; duplicate?: boolean; attendanceRecord: AttendanceRecord }> {
@@ -218,9 +241,22 @@ export const api = {
     return this.request('/api/attendance', { method: 'POST', body: JSON.stringify(record) });
   },
 
-  async resetAttendanceRecords(): Promise<{ success: boolean; count: number; message: string }> {
+  async verifyAttendance(recordId: string, status: 'verified' | 'rejected', reason?: string): Promise<{ success: boolean; attendanceRecord?: AttendanceRecord }> {
+    return this.request('/api/attendance', {
+      method: 'POST',
+      body: JSON.stringify({
+        id: recordId,
+        verificationStatus: status,
+        rejectionReason: reason || null,
+        canWriteReview: true,
+      }),
+    });
+  },
+
+  async resetAttendanceRecords(confirmToken: string = 'CONFIRM_DELETE_ALL_ATTENDANCE'): Promise<{ success: boolean; count: number; message: string }> {
     return this.request<{ success: boolean; count: number; message: string }>('/api/attendance/reset', {
       method: 'DELETE',
+      body: JSON.stringify({ confirmToken }),
     });
   },
 
@@ -239,6 +275,13 @@ export const api = {
     return this.request<{ success: boolean; kejuruanList: Kejuruan[] }>('/api/kejuruan');
   },
 
+  async createKejuruan(kjData: Omit<Kejuruan, 'id'> & { id?: string }): Promise<{ success: boolean; message?: string; kejuruan?: Kejuruan; data?: Kejuruan }> {
+    return this.request<{ success: boolean; message?: string; kejuruan?: Kejuruan; data?: Kejuruan }>('/api/kejuruan', {
+      method: 'POST',
+      body: JSON.stringify(kjData),
+    });
+  },
+
   // Create user (Mentor or Trainee by Admin)
   async createUser(userData: Omit<User, 'id'>): Promise<{ success: boolean; message: string; user: User }> {
     return this.request<{ success: boolean; message: string; user: User }>('/api/users', {
@@ -255,9 +298,13 @@ export const api = {
     });
   },
 
+  async importUsers(users: Partial<User>[]): Promise<{ success: boolean; count: number; message: string; createdUsers?: User[] }> {
+    return this.batchImportUsers(users);
+  },
+
   // Update user
-  async updateUser(id: string, updates: Partial<User>): Promise<{ success: boolean; message: string }> {
-    return this.request<{ success: boolean; message: string }>(`/api/users/${id}`, {
+  async updateUser(id: string, updates: Partial<User>): Promise<{ success: boolean; message: string; user?: User }> {
+    return this.request<{ success: boolean; message: string; user?: User }>(`/api/users/${id}`, {
       method: 'PUT',
       body: JSON.stringify(updates),
     });
@@ -337,10 +384,32 @@ export const api = {
     });
   },
 
+  async deleteUsersByRole(
+    role: 'trainee' | 'mentor' | 'all'
+  ): Promise<{ success: boolean; count: number; message: string }> {
+    return this.clearUsersByRole(role);
+  },
+
   async deleteTraineesByIds(ids: string[]): Promise<{ success: boolean; count: number; message: string }> {
     return this.request<{ success: boolean; count: number; message: string }>('/api/users/batch-delete-trainees', {
       method: 'POST',
       body: JSON.stringify({ ids }),
+    });
+  },
+
+  async regenerateUserCredentials(userId: string): Promise<{
+    success: boolean;
+    loginCode: string;
+    password: string;
+    message?: string;
+  }> {
+    return this.request<{
+      success: boolean;
+      loginCode: string;
+      password: string;
+      message?: string;
+    }>(`/api/users/${encodeURIComponent(userId)}/regenerate-credentials`, {
+      method: 'POST',
     });
   },
 

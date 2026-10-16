@@ -11,12 +11,11 @@ const getMentorProgramIds = async (user: any): Promise<string[]> => {
 
 // Kejuruan operations
 export const getKejuruan = async (role: 'admin' | 'mentor' | 'trainee', user: any, programNames: string[] = []): Promise<any[]> => {
-  const scope = role === 'admin' ? null : role === 'mentor' ? user.kejuruanId || '' : user.id;
   const nameClause = programNames.length
     ? `LOWER(TRIM(name)) IN (${programNames.map(() => '?').join(',')})`
     : '';
 
-  if (scope === null) {
+  if (role === 'admin') {
     const [rows] = await getPool().query<any[]>(
       `SELECT * FROM kejuruan ORDER BY name`
     );
@@ -26,14 +25,17 @@ export const getKejuruan = async (role: 'admin' | 'mentor' | 'trainee', user: an
   if (role === 'mentor') {
     const [rows] = await getPool().query<any[]>(
       `SELECT * FROM kejuruan WHERE id = ? OR mentor_id = ?${nameClause ? ` OR ${nameClause}` : ''} ORDER BY name`,
-      [scope, user.id, ...programNames]
+      [user.kejuruanId || '', user.id, ...programNames]
     );
     return rows;
   }
 
+  // trainee - Fix: use kejuruanId directly, not user.id
+  if (!user?.kejuruanId) return [];
+  const params = [user.kejuruanId, ...programNames];
   const [rows] = await getPool().query<any[]>(
     `SELECT * FROM kejuruan WHERE id = ?${nameClause ? ` OR ${nameClause}` : ''} ORDER BY name`,
-    scope === '' ? [] : [user.kejuruanId || '', ...programNames]
+    params
   );
   return rows;
 };
@@ -47,12 +49,29 @@ export const getKejuruanById = async (id: string): Promise<any> => {
 };
 
 export const createKejuruan = async (data: any): Promise<any> => {
+  const id = `kj-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const code = canonicalKejuruanCode(data.name, data.code);
-  await getPool().query(
-    `INSERT INTO kejuruan (id, name, code, category, color, description, mentor_id, mentor_name) VALUES (?,?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE name=VALUES(name),code=VALUES(code),category=VALUES(category),color=VALUES(color),description=VALUES(description),mentor_id=VALUES(mentor_id),mentor_name=VALUES(mentor_name)`,
-    [data.id, data.name, code, data.category, data.color, data.description || '', data.mentorId || null, data.mentorName || null]
-  );
-  return result;
+  try {
+    await getPool().query(
+      `INSERT INTO kejuruan (id, name, code, category, color, description, mentor_id, mentor_name) VALUES (?,?,?,?,?,?,?,?)`,
+      [id, data.name, code, data.category, data.color, data.description || '', data.mentorId || null, data.mentorName || null]
+    );
+  } catch (error: any) {
+    if (error.code === 'ER_DUP_ENTRY') {
+      throw new Error('Kejuruan dengan kode atau nama tersebut sudah ada.');
+    }
+    throw error;
+  }
+  return {
+    id,
+    name: data.name,
+    code,
+    category: data.category,
+    color: data.color,
+    description: data.description || '',
+    mentorId: data.mentorId || undefined,
+    mentorName: data.mentorName || undefined,
+  };
 };
 
 export const updateKejuruan = async (id: string, data: any): Promise<any> => {
@@ -71,23 +90,24 @@ export const deleteKejuruan = async (id: string, userRole: 'admin' | 'mentor' | 
   }
 
   if (userRole === 'mentor') {
-    const programNames: string[] = [];
     const [programRows]: any = await getPool().query<any[]>(
       `SELECT id FROM kejuruan WHERE id = ? OR mentor_id = ?`,
-      [userKejuruanId || '', userId, ...programNames]
+      [userKejuruanId || '', userId]
     );
-    const programIds = [...new Set([...programRows.map((r: any) => String(r.id)), userKejuruanId || ''])];
+    const programIds = [...new Set([...programRows.map((r: any) => String(r.id)), userKejuruanId || ''].filter(Boolean))];
+    if (!programIds.includes(String(id))) {
+      return { affectedRows: 0 };
+    }
 
     const [result]: any = await getPool().query(
-      `DELETE FROM kejuruan WHERE id = ? AND (id IN (?))`,
-      [id, programIds]
+      `DELETE FROM kejuruan WHERE id = ? AND id IN (${programIds.map(() => '?').join(',')})`,
+      [id, ...programIds]
     );
     return result;
   }
 
-  // trainee can only delete their own
-  const [result]: any = await getPool().query('DELETE FROM kejuruan WHERE id = ? AND user_id = ?', [id, userId]);
-  return result;
+  // Kejuruan is master data — trainees cannot delete it.
+  throw new Error('Peserta tidak diizinkan menghapus kejuruan.');
 };
 
 // Attendance operations
@@ -134,15 +154,32 @@ export const getAttendanceRecords = async (role: 'admin' | 'mentor' | 'trainee',
 };
 
 export const upsertAttendanceRecord = async (record: any, userRole: 'admin' | 'mentor' | 'trainee', userId: string): Promise<any> => {
+  const [userRows] = await getPool().query<any[]>(
+    'SELECT id, name, login_code AS nim, role, kejuruan_id, kejuruan_name FROM users WHERE id = ? LIMIT 1',
+    [userId]
+  );
+  if (!userRows.length) {
+    throw new Error('User not found');
+  }
+  const userData = userRows[0];
+
   const penaltySettings = await loadPenaltySettings();
+  const date = record.date ? String(record.date).slice(0, 10) : '';
+
+  const [existingRecordRows] = await getPool().query<any[]>(
+    'SELECT * FROM attendance_records WHERE user_id = ? AND attendance_date = ? LIMIT 1',
+    [userId, date]
+  );
+  const existingRecord = existingRecordRows[0];
+  const effectiveStatus = record.status || existingRecord?.status || 'hadir';
+
   const latePenalty = computeLatePenalty(penaltySettings, {
-    role: record.userRole || 'trainee',
-    status: record.status,
-    checkInTime: record.checkInTime || null,
+    role: userData.role || 'trainee',
+    status: effectiveStatus,
+    checkInTime: record.checkInTime || existingRecord?.check_in_time || null,
   });
 
-  const id = record.id || `att-${Date.now()}`;
-  const date = record.date ? String(record.date).slice(0, 10) : '';
+  const id = record.id || existingRecord?.id || `att-${Date.now()}`;
 
   const [result]: any = await getPool().query(
     `INSERT INTO attendance_records (
@@ -151,21 +188,24 @@ export const upsertAttendanceRecord = async (record: any, userRole: 'admin' | 'm
       location, latitude, longitude, notes, photo_url, rejection_reason, work_mode, late_minutes, late_penalty_points
     ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
     ON DUPLICATE KEY UPDATE
-      notes = IF(?, VALUES(notes), notes),
-      work_mode = IF(?, COALESCE(VALUES(work_mode), work_mode), work_mode),
+      notes = COALESCE(VALUES(notes), notes),
+      work_mode = COALESCE(VALUES(work_mode), work_mode),
       check_in_time = COALESCE(VALUES(check_in_time), check_in_time),
       check_out_time = COALESCE(VALUES(check_out_time), check_out_time),
-      status = VALUES(status),
-      location = VALUES(location), latitude = VALUES(latitude),
-      longitude = VALUES(longitude), photo_url = VALUES(photo_url),
-      late_minutes = VALUES(late_minutes), late_penalty_points = VALUES(late_penalty_points),
+      status = COALESCE(VALUES(status), status),
+      location = COALESCE(VALUES(location), location),
+      latitude = COALESCE(VALUES(latitude), latitude),
+      longitude = COALESCE(VALUES(longitude), longitude),
+      photo_url = COALESCE(VALUES(photo_url), photo_url),
+      late_minutes = IF(VALUES(late_minutes) > 0, VALUES(late_minutes), late_minutes),
+      late_penalty_points = IF(VALUES(late_penalty_points) > 0, VALUES(late_penalty_points), late_penalty_points),
       verification_status = IF(?, VALUES(verification_status), verification_status),
       verified_by = IF(?, VALUES(verified_by), verified_by),
       verified_at = IF(?, VALUES(verified_at), verified_at),
       rejection_reason = IF(?, VALUES(rejection_reason), rejection_reason)`,
     [
-      id, userId, record.userName, record.userNim, record.userRole || 'trainee', record.kejuruanId || null, record.kejuruanName || 'Umum', date,
-      record.checkInTime || null, record.checkOutTime || null, record.status, record.verificationStatus, record.verifiedBy || null, record.verifiedAt || null,
+      id, userId, userData.name, userData.nim, userData.role || 'trainee', userData.kejuruan_id || null, userData.kejuruan_name || 'Umum', date,
+      record.checkInTime || null, record.checkOutTime || null, effectiveStatus, record.verificationStatus || 'pending', record.verifiedBy || null, dateTimeValue(record.verifiedAt) || null,
       record.location || null, record.coordinates?.lat ?? null, record.coordinates?.lng ?? null, record.notes || null, record.photoUrl || null,
       record.rejectionReason || null, record.workMode === 'WFH' ? 'WFH' : record.workMode === 'WFO' ? 'WFO' : null,
       latePenalty.lateMinutes, latePenalty.latePenaltyPoints,
@@ -230,7 +270,7 @@ export const submitLeaveRequest = async (reqBody: any, user: any): Promise<any> 
   }
 
   const daysCount = Math.floor((end.getTime() - start.getTime()) / 86400000) + 1;
-  const submittedAt = new Date().toISOString();
+  const submittedAt = new Date().toISOString().slice(0, 19).replace('T', ' ');
   const id = `leave-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
   const [result]: any = await getPool().query(
@@ -255,7 +295,7 @@ export const reviewLeaveRequest = async (id: string, status: 'approved' | 'rejec
   }
 
   const notes = String(reviewNotes || (status === 'approved' ? 'Pengajuan disetujui' : 'Pengajuan ditolak')).slice(0, 2000);
-  const reviewedAt = new Date().toISOString();
+  const reviewedAt = new Date().toISOString().slice(0, 19).replace('T', ' ');
 
   const [rows] = await getPool().query<any[]>(
     'SELECT * FROM leave_requests WHERE id = ? LIMIT 1',
@@ -308,9 +348,10 @@ export const getMissions = async (role: 'admin' | 'mentor' | 'trainee', user: an
 
 export const createMission = async (missionData: any): Promise<any> => {
   const id = missionData.id || `mis-${Date.now()}`;
+  const createdAt = missionData.createdAt || new Date().toISOString().slice(0, 19).replace('T', ' ');
   await getPool().query(
-    `INSERT INTO missions (id, title, description, kejuruan_id, kejuruan_name, mentor_id, mentor_name, points, difficulty, due_date, status, category, submission_guide) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-    [id, missionData.title, missionData.description, missionData.kejuruanId || null, missionData.kejuruanName || null, missionData.mentorId || null, missionData.mentorName || null, missionData.points || 0, missionData.difficulty || 'medium', missionData.dueDate || null, missionData.status || 'active', missionData.category || null, missionData.submissionGuide || null]
+    `INSERT INTO missions (id, title, description, kejuruan_id, kejuruan_name, mentor_id, mentor_name, points, difficulty, due_date, created_at, status, category, submission_guide) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+    [id, missionData.title, missionData.description, missionData.kejuruanId || null, missionData.kejuruanName || null, missionData.mentorId || null, missionData.mentorName || null, missionData.points || 0, missionData.difficulty || 'Mudah', missionData.dueDate || null, createdAt, missionData.status || 'active', missionData.category || null, missionData.submissionGuide || null]
   );
   const [rows] = await getPool().query<any[]>('SELECT * FROM missions WHERE id = ? LIMIT 1', [id]);
   return rows[0] ? mapMissionRecord(rows[0]) : null;
@@ -394,7 +435,7 @@ export const submitMissionWork = async (submissionData: any, currentUser: any): 
     submissionLink: submissionData.submissionLink,
     notes: submissionData.notes,
     points: Number(targetMission.points) || 0,
-    submittedAt: new Date().toISOString(),
+    submittedAt: dateTimeValue(new Date().toISOString()),
     status: 'pending',
   };
 
@@ -420,20 +461,30 @@ export const reviewMissionSubmission = async (submissionId: string, status: 'app
     [submissionId]
   );
   if (!existingRows.length) throw new Error('Submission tidak ditemukan.');
+  const [missionRows] = await getPool().query<any[]>(
+    'SELECT kejuruan_id, points FROM missions WHERE id = ? LIMIT 1',
+    [existingRows[0].mission_id]
+  );
   if (user?.role === 'mentor') {
-    const [missionRows] = await getPool().query<any[]>(
-      'SELECT kejuruan_id FROM missions WHERE id = ? LIMIT 1',
-      [existingRows[0].mission_id]
-    );
     const programIds = await getMentorProgramIds(user);
     if (!missionRows.length || !programIds.includes(String(missionRows[0].kejuruan_id || ''))) throw new Error('Submission ini berada di luar misi yang Anda kelola.');
   }
 
-  const reviewedAt = new Date().toISOString();
+  if (awardedPoints !== undefined && awardedPoints !== null) {
+    if (awardedPoints < 0) {
+      throw new Error('Poin penghargaan tidak boleh negatif.');
+    }
+    const maxPoints = Number(missionRows[0]?.points || 0);
+    if (maxPoints > 0 && awardedPoints > maxPoints) {
+      throw new Error('Nilai tidak boleh melebihi batas maksimal poin misi.');
+    }
+  }
+
+  const reviewedAt = new Date().toISOString().slice(0, 19).replace('T', ' ');
   const feedbackText = feedback || (status === 'approved' ? 'Disetujui' : 'Ditolak');
 
   const [result]: any = await getPool().query(
-    `UPDATE mission_submissions SET status = ?, feedback = ?, reviewed_by = ?, reviewed_at = ?, awarded_points = ? WHERE id = ?`,
+    `UPDATE mission_submissions SET status = ?, feedback = ?, reviewed_by = ?, reviewed_at = ?, points = ? WHERE id = ?`,
     [status, feedbackText, user?.name || 'Mentor', reviewedAt, awardedPoints || 0, submissionId]
   );
 
@@ -441,7 +492,7 @@ export const reviewMissionSubmission = async (submissionId: string, status: 'app
     'SELECT * FROM mission_submissions WHERE id = ? LIMIT 1',
     [submissionId]
   );
-  return rows[0] ? mapSubmissionRecord(rows[0]) : mapSubmissionRecord({ ...result, id: submissionId, status, feedback: feedbackText, reviewed_by: userName || 'Mentor', reviewed_at: reviewedAt, awarded_points: awardedPoints || 0 });
+  return rows[0] ? mapSubmissionRecord(rows[0]) : mapSubmissionRecord({ ...result, id: submissionId, status, feedback: feedbackText, reviewed_by: user?.name || 'Mentor', reviewed_at: reviewedAt, points: awardedPoints || 0 });
 };
 
 // Daily reports operations
@@ -550,9 +601,30 @@ export const reviewDailyReport = async (id: string, status: 'approved' | 'reject
 // Settings operations
 export const loadPenaltySettings = async (): Promise<any> => {
   const [rows]: any = await getPool().query<any[]>(
-    'SELECT late_limit_time, late_point_penalty_per_minute, absent_point_penalty_per_day, start_time, end_time, allow_checkout_start, work_days, office_location FROM attendance_settings ORDER BY updated_at DESC LIMIT 1'
+    'SELECT late_limit_time, late_point_penalty_per_minute, absent_point_penalty_per_day, start_time, end_time, allow_checkout_start, work_days, office_location, penalty_start_date FROM attendance_settings ORDER BY updated_at DESC LIMIT 1'
   );
-  return rows[0];
+  if (!rows || !rows.length) {
+    return {
+      lateLimitTime: '09:00',
+      latePointPenaltyPerMinute: 1,
+      absentPointPenaltyPerDay: 2,
+      startTime: '08:00',
+      endTime: '17:00',
+      allowCheckoutStart: '16:30',
+      penaltyStartDate: '2026-10-01',
+    };
+  }
+  const row = rows[0];
+  return {
+    ...row,
+    lateLimitTime: row.late_limit_time || '09:00',
+    latePointPenaltyPerMinute: Number(row.late_point_penalty_per_minute ?? 1),
+    absentPointPenaltyPerDay: Number(row.absent_point_penalty_per_day ?? 2),
+    startTime: row.start_time || '08:00',
+    endTime: row.end_time || '17:00',
+    allowCheckoutStart: row.allow_checkout_start || '16:30',
+    penaltyStartDate: dateValue(row.penalty_start_date) || '2026-10-01',
+  };
 };
 
 export const updateAttendanceSettings = async (settings: any, userId: string): Promise<any> => {
@@ -582,23 +654,68 @@ export const updateAttendanceSettings = async (settings: any, userId: string): P
     throw new Error('Poin pengurangan per hari tidak absen harus bilangan bulat 0-500.');
   }
 
+  const penaltyStartDate = settings.penaltyStartDate || '2026-10-01';
+
   const [result]: any = await getPool().query(
-    `INSERT INTO attendance_settings (id, start_time, late_limit_time, end_time, allow_checkout_start, work_days, office_location, late_point_penalty_per_minute, absent_point_penalty_per_day, updated_by) VALUES ('global', ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `INSERT INTO attendance_settings (id, start_time, late_limit_time, end_time, allow_checkout_start, work_days, office_location, late_point_penalty_per_minute, absent_point_penalty_per_day, penalty_start_date, updated_by) VALUES ('global', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON DUPLICATE KEY UPDATE start_time=VALUES(start_time), late_limit_time=VALUES(late_limit_time),
      end_time=VALUES(end_time), allow_checkout_start=VALUES(allow_checkout_start), work_days=VALUES(work_days),
      office_location=VALUES(office_location), late_point_penalty_per_minute=VALUES(late_point_penalty_per_minute),
-     absent_point_penalty_per_day=VALUES(absent_point_penalty_per_day), updated_by=VALUES(updated_by)`,
+     absent_point_penalty_per_day=VALUES(absent_point_penalty_per_day), penalty_start_date=VALUES(penalty_start_date), updated_by=VALUES(updated_by)`,
     [settings.startTime, settings.lateLimitTime, settings.endTime, settings.allowCheckoutStart,
       JSON.stringify(settings.workDays), JSON.stringify({ ...location, lat, lng, radiusMeters }),
-      latePointPenaltyPerMinute, absentPointPenaltyPerDay, userId]
+      latePointPenaltyPerMinute, absentPointPenaltyPerDay, penaltyStartDate, userId]
   );
   return result;
+};
+
+// Helper function to build exempt dates for Hall of Fame penalty calculation
+const buildExemptDates = async (startDate: any, endDate: any): Promise<Map<string, Set<string>>> => {
+  const pool = getPool();
+  const exemptByUser = new Map<string, Set<string>>();
+  const add = (userId: string, date: string) => {
+    if (!userId || !date) return;
+    const set = exemptByUser.get(userId) || new Set<string>();
+    set.add(date);
+    exemptByUser.set(userId, set);
+  };
+
+  const dateText = (value: any) => value instanceof Date ? value.toISOString().slice(0, 10) : value ? String(value).slice(0, 10) : '';
+
+  const cleanStartDate = dateText(startDate) || '2026-10-01';
+  const cleanEndDate = dateText(endDate) || new Date().toISOString().slice(0, 10);
+
+  const [attendanceRows] = await pool.query<any[]>(
+    `SELECT user_id, attendance_date FROM attendance_records
+     WHERE check_in_time IS NOT NULL AND attendance_date >= ? AND attendance_date <= ?`,
+    [cleanStartDate, cleanEndDate]
+  );
+  for (const row of attendanceRows) {
+    add(String(row.user_id), dateText(row.attendance_date));
+  }
+
+  const [leaveRows] = await pool.query<any[]>(
+    `SELECT user_id, start_date, end_date FROM leave_requests
+     WHERE status = 'approved' AND end_date >= ? AND start_date <= ?`,
+    [cleanStartDate, cleanEndDate]
+  );
+  for (const row of leaveRows) {
+    const start = dateText(row.start_date);
+    const end = dateText(row.end_date);
+    if (!start || !end) continue;
+    let timestamp = Math.max(Date.parse(`${start}T00:00:00Z`), Date.parse(`${cleanStartDate}T00:00:00Z`));
+    const endTimestamp = Math.min(Date.parse(`${end}T00:00:00Z`), Date.parse(`${cleanEndDate}T00:00:00Z`));
+    for (let guard = 0; timestamp <= endTimestamp && guard < 400; timestamp += 86_400_000, guard += 1) {
+      add(String(row.user_id), new Date(timestamp).toISOString().slice(0, 10));
+    }
+  }
+  return exemptByUser;
 };
 
 // Hall of Fame operations
 export const getTraineeHallOfFame = async (user: any): Promise<any[]> => {
   const [rows]: any = await getPool().query<any[]>(`
-    SELECT u.id, u.nim, u.name, u.avatar, u.kejuruan_id, u.kejuruan_name, u.joined_date,
+    SELECT u.id, u.login_code AS nim, u.name, u.avatar, u.kejuruan_id, u.kejuruan_name, u.joined_date,
            COALESCE(submission_stats.completed_missions_count, 0) AS completed_missions_count,
            COALESCE(submission_stats.total_points, 0) AS approved_points,
            COALESCE(late_penalties.total_penalty, 0) AS total_late_penalty
@@ -618,16 +735,30 @@ export const getTraineeHallOfFame = async (user: any): Promise<any[]> => {
     WHERE u.role = 'trainee'
   `);
   const today = todayWib();
-  const exemptByUser = await buildExemptDates('2026-10-01', today);
+  const setting = await loadPenaltySettings();
+  let workDays = [1, 2, 3, 4, 5];
+  try {
+    const parsed = typeof setting?.work_days === 'string' ? JSON.parse(setting.work_days) : setting?.work_days;
+    if (Array.isArray(parsed)) {
+      const days = parsed.map(Number).filter((day: number) => Number.isInteger(day) && day >= 0 && day <= 6);
+      if (days.length) workDays = days;
+    }
+  } catch {
+    // keep default Mon–Fri
+  }
+  const absentPointPenaltyPerDay = normalizeAbsentPointPenaltyPerDay(setting?.absent_point_penalty_per_day);
+  const penaltyStartDate = dateValue(setting?.penalty_start_date) || setting?.penaltyStartDate || '2026-10-01';
+  const exemptByUser = await buildExemptDates(penaltyStartDate, today);
 
   const trainees = rows.map((row: any) => {
     const latePenaltyPoints = Number(row.total_late_penalty || 0);
     const absent = computeAbsentPenalty({
-      workDays: [], // will be populated from kejuruan settings
-      absentPointPenaltyPerDay: 1,
+      workDays,
+      absentPointPenaltyPerDay,
       today,
       joinedDate: row.joined_date,
       attendedOrLeaveDates: exemptByUser.get(String(row.id)) || [],
+      penaltyStartDate,
     });
     const approvedPoints = Number(row.approved_points || 0);
     return {
@@ -645,7 +776,7 @@ export const getTraineeHallOfFame = async (user: any): Promise<any[]> => {
     };
   });
 
-  trainees.sort((a, b) =>
+  trainees.sort((a: any, b: any) =>
     b.totalPoints - a.totalPoints ||
     b.completedMissionsCount - a.completedMissionsCount ||
     String(a.name).localeCompare(String(b.name))
@@ -659,7 +790,7 @@ export const getMentorHallOfFame = async (user: any): Promise<any[]> => {
 
   const mentorScope = user.role === 'mentor' ? 'AND mentor.id = ?' : '';
   const [rows]: any = await getPool().query<any[]>(`
-    SELECT mentor.id, mentor.nim, mentor.name, mentor.kejuruan_name,
+    SELECT mentor.id, mentor.login_code AS nim, mentor.name, mentor.kejuruan_name,
            COUNT(DISTINCT CASE WHEN submission.status = 'approved' THEN submission.id END) AS completed_missions_count,
            COALESCE(SUM(
              CASE WHEN submission.status = 'approved'
@@ -677,7 +808,7 @@ export const getMentorHallOfFame = async (user: any): Promise<any[]> => {
       GROUP BY kejuruan_id
     ) trainee_counts ON trainee_counts.kejuruan_id = mission.kejuruan_id
     WHERE mentor.role = 'mentor' ${mentorScope}
-    GROUP BY mentor.id, mentor.nim, mentor.name, mentor.kejuruan_name
+    GROUP BY mentor.id, mentor.login_code, mentor.name, mentor.kejuruan_name
     ORDER BY total_points DESC, completed_missions_count DESC, mentor.name ASC
   `, user.role === 'mentor' ? [user.id] : []);
 
@@ -728,12 +859,19 @@ export const todayWib = (): string => {
   return shifted.toISOString().slice(0, 10);
 };
 
-export const canonicalKejuruanCode = (name: string, currentCode: string) => {
-  const normalizedName = name.trim().toLocaleLowerCase('id-ID');
+export const canonicalKejuruanCode = (name: string, currentCode?: string) => {
+  const normalizedName = (name || '').trim().toLocaleLowerCase('id-ID');
   if (normalizedName.includes('pemasangan sistem integrasi bangunan cerdas')) return 'SB-04';
   if (normalizedName.includes('pembuatan sistem informasi pariwisata berbasis website')) return 'ST-04';
   if (normalizedName.includes('pengembangan web dengan node.js dan react')) return 'WEB-04';
-  return currentCode; // legacyCodes lookup removed for brevity
+  if (currentCode && String(currentCode).trim()) return String(currentCode).trim();
+  const initials = (name || '')
+    .trim()
+    .split(/\s+/)
+    .map(w => w[0]?.toUpperCase() || '')
+    .join('')
+    .slice(0, 4) || 'KJ';
+  return `${initials}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
 };
 
 export const normalizeLatePointPenaltyPerMinute = (value: unknown): number => {
@@ -749,7 +887,7 @@ export const normalizeAbsentPointPenaltyPerDay = (value: unknown): number => {
 };
 
 export const computeLatePenalty = (
-  settings: { lateLimitTime: string; latePointPenaltyPerMinute: number },
+  settings: any,
   record: { role?: string | null; status?: string | null; checkInTime?: string | null }
 ): { lateMinutes: number; latePenaltyPoints: number } => {
   const empty = { lateMinutes: 0, latePenaltyPoints: 0 };
@@ -763,7 +901,8 @@ export const computeLatePenalty = (
     return Number(match[1]) * 3600 + Number(match[2]) * 60 + Number(match[3] || 0);
   };
 
-  const limitSeconds = toSeconds(settings.lateLimitTime);
+  const limitTime = settings?.lateLimitTime || settings?.late_limit_time || '09:00';
+  const limitSeconds = toSeconds(limitTime);
   const checkInSeconds = toSeconds(record.checkInTime);
   if (limitSeconds == null || checkInSeconds == null) return empty;
 
@@ -771,7 +910,7 @@ export const computeLatePenalty = (
   if (diffSeconds <= 0) return empty;
 
   const lateMinutes = Math.ceil(diffSeconds / 60);
-  const rate = normalizeLatePointPenaltyPerMinute(settings.latePointPenaltyPerMinute);
+  const rate = normalizeLatePointPenaltyPerMinute(settings?.latePointPenaltyPerMinute ?? settings?.late_point_penalty_per_minute ?? 1);
   return { lateMinutes, latePenaltyPoints: lateMinutes * rate };
 };
 
@@ -781,11 +920,12 @@ export const computeAbsentPenalty = (input: {
   today: string;
   joinedDate?: string | null;
   attendedOrLeaveDates: Iterable<string>;
+  penaltyStartDate?: string;
 }): { absentDays: number; absentPenaltyPoints: number } => {
   const today = input.today.slice(0, 10);
   const joinedDate = input.joinedDate ? String(input.joinedDate).slice(0, 10) : null;
 
-  const ABSENT_PENALTY_START_DATE = '2026-10-01';
+  const ABSENT_PENALTY_START_DATE = input.penaltyStartDate || '2026-10-01';
   const startDate = joinedDate && joinedDate > ABSENT_PENALTY_START_DATE ? joinedDate : ABSENT_PENALTY_START_DATE;
 
   const allowedDays = new Set(
@@ -806,7 +946,15 @@ export const computeAbsentPenalty = (input: {
   return { absentDays: count, absentPenaltyPoints: count * rate };
 };
 
-export const dateValue = (value?: string) => value ? String(value).slice(0, 10) : null;
+export const dateValue = (value?: any) => {
+  if (!value) return null;
+  if (value instanceof Date) return value.toISOString().slice(0, 10);
+  const s = String(value);
+  if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
+  const parsed = new Date(s);
+  if (!isNaN(parsed.getTime())) return parsed.toISOString().slice(0, 10);
+  return s.slice(0, 10);
+};
 export const dateTimeValue = (value?: string) => value ? String(value).replace('T', ' ').replace(/Z$/, '').slice(0, 19) : null;
 
 export const deleteMission = async (id: string): Promise<any> => {

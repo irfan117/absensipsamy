@@ -36,6 +36,12 @@ interface AppContextType {
   changePassword: (currentPassword: string, newPassword: string) => Promise<{ success: boolean; message: string }>;
   updateMyAvatar: (avatar: string) => Promise<{ success: boolean; message: string }>;
   addUser: (userData: Omit<User, 'id'>) => Promise<{ success: boolean; message: string; user?: User }>;
+  deleteUser: (userId: string) => Promise<{ success: boolean; message: string }>;
+  deleteUsersByRole: (roleTarget: 'trainee' | 'mentor' | 'all') => Promise<{ success: boolean; message: string }>;
+  deleteTraineesByIds: (ids: string[]) => Promise<{ success: boolean; message: string }>;
+  addKejuruan: (kjData: Omit<Kejuruan, 'id'>) => Promise<{ success: boolean; message: string }>;
+  importUsers: (usersToImport: Partial<User>[]) => Promise<{ success: boolean; count?: number; message: string }>;
+  regenerateUserCredentials: (userId: string) => Promise<{ loginCode: string; password: string; success: boolean; message?: string }>;
   updateMyKejuruan: (kejuruanId: string) => Promise<{ success: boolean; message: string }>;
   refreshUsers: () => Promise<void>;
   refreshLeaveRequests: () => Promise<void>;
@@ -249,7 +255,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const updateMyAvatar = async (avatar: string) => {
     try {
-      return await api.updateMyAvatar(avatar);
+      const res = await api.updateMyAvatar(avatar);
+      if (res.success && currentUser) {
+        setCurrentUser({ ...currentUser, avatar });
+        setUsers((prev) => prev.map((user) => (user.id === currentUser.id ? { ...user, avatar } : user)));
+      }
+      return res;
     } catch {
       return { success: false, message: 'Gagal memperbarui avatar.' };
     }
@@ -265,6 +276,98 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return res;
     } catch (error: any) {
       return { success: false, message: error?.message || 'Gagal menambah pengguna baru.' };
+    }
+  };
+
+  const deleteUser = async (userId: string) => {
+    try {
+      const res = await api.deleteUser(userId);
+      if (res.success) {
+        setUsers((prev) => prev.filter((user) => user.id !== userId));
+      }
+      return res;
+    } catch {
+      return { success: false, message: 'Gagal menghapus pengguna.' };
+    }
+  };
+
+  const deleteUsersByRole = async (roleTarget: 'trainee' | 'mentor' | 'all') => {
+    try {
+      const res = await api.deleteUsersByRole(roleTarget);
+      if (res.success) {
+        setUsers((prev) =>
+          prev.filter((user) => {
+            if (roleTarget === 'trainee') return user.role !== 'trainee';
+            if (roleTarget === 'mentor') return user.role !== 'mentor';
+            return user.role === 'admin';
+          })
+        );
+      }
+      return { success: res.success, message: res.message };
+    } catch {
+      return { success: false, message: 'Gagal menghapus pengguna secara massal.' };
+    }
+  };
+
+  const deleteTraineesByIds = async (ids: string[]) => {
+    try {
+      const res = await api.deleteTraineesByIds(ids);
+      if (res.success) {
+        setUsers((prev) => prev.filter((user) => !ids.includes(user.id)));
+      }
+      return { success: res.success, message: res.message };
+    } catch {
+      return { success: false, message: 'Gagal menghapus peserta terpilih.' };
+    }
+  };
+
+  const addKejuruan = async (kjData: Omit<Kejuruan, 'id'>) => {
+    try {
+      const res = await api.createKejuruan(kjData);
+      const created = res.kejuruan || res.data;
+      if (res.success && created) {
+        setKejuruanList((prev) => [...prev.filter((item) => item.id !== created.id), created]);
+        return { success: true, message: 'Kejuruan berhasil ditambahkan.' };
+      }
+      await refreshKejuruan();
+      return { success: res.success, message: res.message || 'Kejuruan berhasil ditambahkan.' };
+    } catch (error: any) {
+      return { success: false, message: error?.message || 'Gagal menambah kejuruan.' };
+    }
+  };
+
+  const importUsers = async (usersToImport: Partial<User>[]) => {
+    try {
+      const res = await api.importUsers(usersToImport);
+      if (res.success) {
+        await refreshUsers();
+      }
+      return { success: res.success, count: res.count, message: res.message };
+    } catch {
+      return { success: false, message: 'Gagal mengimpor pengguna.' };
+    }
+  };
+
+  const regenerateUserCredentials = async (userId: string) => {
+    try {
+      const res = await api.regenerateUserCredentials(userId);
+      if (res.success) {
+        setUsers((prev) =>
+          prev.map((user) =>
+            user.id === userId
+              ? { ...user, loginCode: res.loginCode, password: res.password, plainPassword: res.password }
+              : user
+          )
+        );
+      }
+      return res;
+    } catch {
+      return {
+        loginCode: '',
+        password: '',
+        success: false,
+        message: 'Gagal mengacak ulang kredensial.',
+      };
     }
   };
 
@@ -285,9 +388,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const resetAttendanceRecords = async () => {
     try {
-      const res = await (api as any).resetAttendanceRecords?.();
-      if (res?.success) setAttendanceRecords([]);
-      return res ?? { success: false, count: 0, message: 'Reset presensi tidak tersedia.' };
+      const res = await api.resetAttendanceRecords();
+      if (res.success) setAttendanceRecords([]);
+      return res;
     } catch {
       return { success: false, count: 0, message: 'Gagal mereset presensi.' };
     }
@@ -460,9 +563,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const resetMentorMissionData = async () => {
     try {
-      const res = await (api as any).resetMentorMissionData?.();
-      if (res?.success) await refreshMissions();
-      return res ?? { success: false, missions: 0, submissions: 0, message: 'Fitur reset misi mentor tidak tersedia.' };
+      const res = await api.resetMentorMissionData();
+      if (res.success) await refreshMissions();
+      return res;
     } catch {
       return { success: false, missions: 0, submissions: 0, message: 'Gagal mereset data misi mentor.' };
     }
@@ -470,29 +573,30 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const resetTraineeHallOfFamePoints = async () => {
     try {
-      const res = await (api as any).resetTraineeHallOfFamePoints?.();
-      if (res?.success) setMissionSubmissions([]);
-      return res ?? { success: false, count: 0, message: 'Fitur reset Hall of Fame tidak tersedia.' };
+      const res = await api.resetTraineeHallOfFamePoints();
+      if (res.success) setMissionSubmissions([]);
+      return res;
     } catch {
       return { success: false, count: 0, message: 'Gagal mereset poin Hall of Fame.' };
     }
   };
 
   const updateSettings = async (newSettings: Partial<AttendanceSettings>) => {
-    setSettings((prev) => ({ ...prev, ...newSettings }));
+    const merged = { ...settings, ...newSettings };
     try {
-      const res = await (api as any).updateSettings?.(newSettings);
-      return res ?? { success: true, message: 'Pengaturan berhasil disimpan.' };
+      const res = await api.saveAttendanceSettings(merged);
+      if (res.success) setSettings(merged);
+      return res;
     } catch {
       return { success: false, message: 'Gagal memperbarui pengaturan.' };
     }
   };
 
   const resetToDefaultData = async () => {
-    setSettings(INITIAL_SETTINGS);
     try {
-      const res = await (api as any).resetToDefaultData?.();
-      return res ?? { success: true, count: 0, message: 'Pengaturan default berhasil direset.' };
+      const res = await api.resetToDefaultData(INITIAL_SETTINGS);
+      if (res.success) setSettings(INITIAL_SETTINGS);
+      return res;
     } catch {
       return { success: false, count: 0, message: 'Gagal mereset pengaturan.' };
     }
@@ -500,11 +604,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const reviewDailyReport = async (reportId: string, status: 'approved' | 'rejected', reviewNotes?: string) => {
     try {
-      const res = await (api as any).reviewDailyReport?.(reportId, status, reviewNotes);
-      if (res?.success) {
+      const res = await api.reviewDailyReport(reportId, status, reviewNotes || '');
+      if (res.success) {
         setDailyReports((prev) => prev.map((item) => item.id === reportId ? { ...item, status: status === 'approved' ? 'approved' : 'rejected', reviewNotes: reviewNotes || item.reviewNotes } : item));
       }
-      return { success: !!res?.success, message: res?.message || 'Laporan diperbarui.' };
+      return { success: res.success, message: res.message || 'Laporan diperbarui.' };
     } catch {
       return { success: false, message: 'Gagal mereview laporan harian.' };
     }
@@ -633,6 +737,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         changePassword,
         updateMyAvatar,
         addUser,
+        deleteUser,
+        deleteUsersByRole,
+        deleteTraineesByIds,
+        addKejuruan,
+        importUsers,
+        regenerateUserCredentials,
         updateMyKejuruan,
         refreshUsers,
         refreshLeaveRequests,

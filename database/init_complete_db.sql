@@ -5,12 +5,9 @@
 
 CREATE TABLE IF NOT EXISTS users (
   id VARCHAR(64) PRIMARY KEY,
-  nim CHAR(8) NOT NULL UNIQUE,
   name VARCHAR(128) NOT NULL,
-  email VARCHAR(128) NOT NULL UNIQUE,
   role ENUM('admin','mentor','trainee') NOT NULL,
   avatar TEXT,
-  phone VARCHAR(32),
   kejuruan_id VARCHAR(64),
   kejuruan_name VARCHAR(255),
   status ENUM('active','inactive') DEFAULT 'active',

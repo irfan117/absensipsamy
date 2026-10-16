@@ -44,7 +44,7 @@ export function exportUsersToExcel(
 
   const wb = XLSX.utils.book_new();
   const ws = XLSX.utils.aoa_to_sheet([
-    ['Nama Lengkap', 'NIM / Kode Login (8 Digit)', 'Sandi (8 Digit)', 'Program Kejuruan', 'Role'],
+    ['Nama Lengkap', 'Kode Login (8 Digit)', 'Sandi (8 Digit)', 'Program Kejuruan', 'Role'],
     ...targetUsers.map(user => [
       user.name,
       user.loginCode || user.nim || '',
@@ -76,7 +76,7 @@ export function downloadUserImportTemplate(
   targetRole: 'all' | 'auto' | 'trainee' | 'mentor' = 'all'
 ): void {
   const wb = XLSX.utils.book_new();
-  const headers = ['Nama Lengkap', 'NIM / Kode Login (8 Digit)', 'Sandi (8 Digit)', 'Program Kejuruan', 'Role'];
+  const headers = ['Nama Lengkap', 'Kode Login (8 Digit)', 'Sandi (8 Digit)', 'Program Kejuruan', 'Role'];
   const sheetName = targetRole === 'mentor' ? 'Mentor' : targetRole === 'trainee' ? 'Peserta' : 'Data Pengguna';
   const ws = XLSX.utils.aoa_to_sheet([headers]);
   ws['!cols'] = [{ wch: 28 }, { wch: 28 }, { wch: 20 }, { wch: 30 }, { wch: 16 }];
@@ -128,7 +128,7 @@ export async function parseUsersFromExcelFile(
       const sheetLower = sheetName.toLowerCase();
       let sheetRole: Role | null = null;
       if (sheetLower.includes('admin') || sheetLower.includes('administrator')) {
-        sheetRole = 'admin';
+        return { success: false, error: 'Import Excel hanya mendukung mentor dan peserta. Data admin tidak diizinkan.' };
       } else if (
         sheetLower.includes('mentor') ||
         sheetLower.includes('instruktur') ||
@@ -177,7 +177,7 @@ export async function parseUsersFromExcelFile(
 
       const nameIdx = findColIdx(['nama']);
       const combinedIdentifierIdx = findColIdx([
-        'nim / kode login', 'nim/kode login', 'nim - kode login', 'nim / code', 'nim/code', 'kode login / nim'
+        'kode login', 'kode login / nim', 'nim / kode login', 'nim/kode login', 'nim - kode login', 'nim / code', 'nim/code', 'login code'
       ]);
       const nimIdx = findColIdx(['nim', 'nip', 'nis', 'nomor induk', 'id']);
       const roleIdx = findColIdx(['peran', 'role', 'jabatan', 'kategori', 'tipe', 'posisi', 'sebagai', 'status peran']);
@@ -223,7 +223,7 @@ export async function parseUsersFromExcelFile(
             const traineeKeywords = ['trainee', 'peserta', 'siswa', 'murid', 'mahasiswa', 'magang', 'pelajar', 'trn'];
 
             if (adminKeywords.some(k => rVal.includes(k))) {
-              finalRole = 'admin';
+              return { success: false, error: `Role "${rVal}" pada baris ${r + 1} tidak valid untuk import Excel. Hanya mentor dan peserta yang diperbolehkan.` };
             } else if (mentorKeywords.some(k => rVal.includes(k))) {
               finalRole = 'mentor';
             } else if (traineeKeywords.some(k => rVal.includes(k))) {
@@ -245,10 +245,10 @@ export async function parseUsersFromExcelFile(
           }
         }
 
-        if (!finalRole) {
+        if (!finalRole || !['mentor', 'trainee'].includes(finalRole)) {
           return {
             success: false,
-            error: `Role tidak dapat dideteksi untuk baris ${r + 1}. Pilih mode Mentor/Peserta atau gunakan nama sheet Mentor/Peserta.`,
+            error: `Role tidak dapat dideteksi untuk baris ${r + 1}. Import Excel hanya untuk mentor dan peserta.`,
           };
         }
 
@@ -300,7 +300,6 @@ export async function parseUsersFromExcelFile(
             : undefined,
           loginCode: rawCode,
           password: rawPass,
-          phone: '',
           status: 'active',
           joinedDate: new Date().toISOString().split('T')[0],
           avatar: `https://images.unsplash.com/photo-${

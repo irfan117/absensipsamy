@@ -22,8 +22,6 @@ export interface User {
   name: string;
   role: Role;
   avatar: string;
-  phone: string;
-  email?: string;
   kejuruanId?: string;
   kejuruanName?: string;
   status: 'active' | 'inactive';

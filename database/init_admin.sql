@@ -10,12 +10,9 @@ USE absensi_db;
 -- 2. Buat Tabel Users
 CREATE TABLE IF NOT EXISTS users (
   id VARCHAR(64) PRIMARY KEY,
-  nim VARCHAR(64) NOT NULL UNIQUE,
   name VARCHAR(128) NOT NULL,
-  email VARCHAR(128) NOT NULL UNIQUE,
   role ENUM('admin', 'mentor', 'trainee') NOT NULL,
   avatar TEXT,
-  phone VARCHAR(32),
   kejuruan_id VARCHAR(64),
   kejuruan_name VARCHAR(128),
   status ENUM('active', 'inactive') DEFAULT 'active',
@@ -57,12 +54,9 @@ CREATE TABLE IF NOT EXISTS leave_requests (
 -- Kredensial admin default: kode 10101010, password 12341234.
 INSERT INTO users (
   id,
-  nim,
   name,
-  email,
   role,
   avatar,
-  phone,
   kejuruan_id,
   kejuruan_name,
   status,
@@ -71,12 +65,9 @@ INSERT INTO users (
   password_hash
 ) VALUES (
   'user-admin-1',
-  '10101010',
   'Abdul Rozzak Junaidi',
-  '10101010@hadirku.id',
   'admin',
   'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=150&auto=format&fit=crop&q=80',
-  '0812-3456-7890',
   NULL,
   NULL,
   'active',
@@ -84,9 +75,7 @@ INSERT INTO users (
   '10101010',
   '$2b$10$1OyoJU/3oeJvbWitoUSORuenG0gmzBsZUHwXCkzkc/69mXH/SDpba'
 ) ON DUPLICATE KEY UPDATE
-  nim = VALUES(nim),
   name = VALUES(name),
-  email = VALUES(email),
   role = VALUES(role),
   login_code = VALUES(login_code),
   password_hash = VALUES(password_hash);

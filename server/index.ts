@@ -12,6 +12,8 @@ import settingsRoutes from './routes/settings.js';
 import hallOfFameRoutes from './routes/hall-of-fame.js';
 import authRoutes from './routes/auth.js';
 import usersRoutes from './routes/users.js';
+import profileRoutes from './routes/profile.js';
+import uploadRoutes from './routes/upload.js';
 import { authenticateToken } from './auth.js';
 import { appDataRouter } from './appData.js';
 
@@ -54,6 +56,8 @@ app.use((req: any, res: any, next: any) => {
 // API Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/users', authenticateToken, usersRoutes);
+app.use('/api/profile', authenticateToken, profileRoutes);
+app.use('/api/upload', authenticateToken, uploadRoutes);
 app.use('/api/kejuruan', authenticateToken, kejuruanRoutes);
 app.use('/api/attendance', authenticateToken, attendanceRoutes);
 app.use('/api/leaves', authenticateToken, leaveRoutes);
@@ -72,18 +76,17 @@ async function ensureDefaultAdmin() {
   const pool = getPool();
   const loginCode = '10101010';
   const password = '12341234';
-  const email = `${loginCode}@hadirku.id`;
   const passwordHash = '$2b$10$1OyoJU/3oeJvbWitoUSORuenG0gmzBsZUHwXCkzkc/69mXH/SDpba';
 
   const [existingAdmins] = await pool.query<any[]>(
-    "SELECT id FROM users WHERE role = 'admin' AND (login_code IN (?, ?) OR nim IN (?, ?) OR email IN (?, ?) OR name LIKE '%Rozzak%' OR name LIKE '%rozzak%') LIMIT 1",
-    [loginCode, '10000001', loginCode, '10000001', email, '10000001@hadirku.id']
+    "SELECT id FROM users WHERE role = 'admin' AND (login_code IN (?, ?) OR name LIKE '%Rozzak%' OR name LIKE '%rozzak%') LIMIT 1",
+    [loginCode, '10000001']
   );
 
   if (existingAdmins.length > 0) {
     await pool.query(
-      `UPDATE users SET nim = ?, name = ?, email = ?, login_code = ?, password_hash = ?, status = 'active', joined_date = '2025-01-10' WHERE id = ?`,
-      [loginCode, 'Abdul Rozzak Junaidi', email, loginCode, passwordHash, existingAdmins[0].id]
+      `UPDATE users SET name = ?, login_code = ?, password_hash = ?, status = 'active', joined_date = '2025-01-10' WHERE id = ?`,
+      ['Abdul Rozzak Junaidi', loginCode, passwordHash, existingAdmins[0].id]
     );
     console.log(`[Auth] Akun admin default dipastikan: Kode login ${loginCode}, password ${password}`);
     return;
@@ -92,9 +95,9 @@ async function ensureDefaultAdmin() {
   const id = `user-admin-${Date.now()}`;
   await pool.query(
     `INSERT INTO users (
-      id, nim, name, email, role, status, joined_date, login_code, password_hash
-    ) VALUES (?, ?, ?, ?, 'admin', 'active', ?, ?, ?)`,
-    [id, loginCode, 'Abdul Rozzak Junaidi', email, '2025-01-10', loginCode, passwordHash]
+      id, name, role, status, joined_date, login_code, password_hash
+    ) VALUES (?, ?, 'admin', 'active', ?, ?, ?)`,
+    [id, 'Abdul Rozzak Junaidi', '2025-01-10', loginCode, passwordHash]
   );
 
   console.log(`[Auth] Akun admin default dibuat: Kode login ${loginCode}, password ${password}`);

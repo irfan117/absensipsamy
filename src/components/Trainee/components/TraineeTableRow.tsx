@@ -65,9 +65,6 @@ export const TraineeTableRow: React.FC<TraineeTableRowProps> = ({
             <div className="font-bold text-[#123B59] text-xs flex items-center gap-1.5">
               <span>{user.name}</span>
             </div>
-            {user.email && (
-              <div className="text-[10px] text-[#6F7F8D]">{user.email}</div>
-            )}
           </div>
         </div>
       </td>
@@ -96,7 +93,7 @@ export const TraineeTableRow: React.FC<TraineeTableRowProps> = ({
               type="button"
               onClick={() => onCopy(user.nim || user.loginCode || '', user.id, 'code')}
               className="text-[#6F7F8D] hover:text-[#123B59] p-1 rounded transition"
-              title="Salin NIM / Kode"
+              title="Salin Kode Login"
             >
               {copiedId === user.id && copiedType === 'code' ? (
                 <Check className="w-3 h-3 text-emerald-600" />
